@@ -10,6 +10,16 @@ Generate force fields for polymer-like molecules
 e.g. to compare charges created for a whole molecule, vs. one assembled from parts:
 
 ```python
+from rdkit import Chem
+from openff.toolkit.topology import Molecule, Topology
+from openff.toolkit.utils.toolkits import *
+
+from openff.toolkit.typing.engines.smirnoff import ForceField
+from openff.fragmenter.fragment import WBOFragmenter
+import numpy as np
+
+import polymetrizer as tzr
+
 def compare_charges_between_fragmented_and_whole(forcefield, smiles):
     offmol = Molecule.from_smiles(smiles, allow_undefined_stereo=True)
     print(f"Molecule has {offmol.n_atoms} atoms.")

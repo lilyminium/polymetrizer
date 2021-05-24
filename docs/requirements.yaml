@@ -1,12 +1,32 @@
 name: docs
 channels:
+  - conda-forge
+  - defaults
+  - openeye
+  
 dependencies:
     # Base depends
+  - bokeh
+  - codecov
+  - cython
+  - ipykernel
+  - ipywidgets
+  - jupyter_contrib_nbextensions
+  - matplotlib
+  - nglview
+  - numpy
+  - openeye-toolkits
+  - openmm
+  - pandas
+  - pydantic
+  - pytest
+  - pytest-cov
   - python
   - pip
-
-
-
-    # Pip-only installs
-  #- pip:
-
+  - rdkit
+  - pip:
+    - xmltodict
+    - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=mdanalysis&subdirectory=package
+    - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=MDAnalysisTests&subdirectory=testsuite
+    - git+https://github.com/openforcefield/openff-fragmenter@master
+    - git+https://github.com/lilyminium/openff-toolkit@unique-matches

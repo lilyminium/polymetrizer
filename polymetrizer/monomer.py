@@ -10,6 +10,28 @@ from . import utils, offutils, ommutils
 
 
 class Monomer:
+    """
+    Class to hold Monomer information.
+
+    Developer's note: not much is done with this to be honest, and it could
+    just be collapsed into the Oligomer class.
+
+    Parameters
+    ---------
+    r_group_smiles: str
+        SMILES pattern with *numbered* substitutable R groups. e.g.
+        "C([R1])([R7])=N([R3])" has three substitutable R-groups,
+        labeled 1, 7, 3. This is important for adding on substituents
+        using the ``r_linkages`` specification in the Polymetrizer.
+
+    Attributes
+    ----------
+    r_group_smiles: str
+        SMILES pattern with substitutable R groups
+    dummy_smiles: str
+        SMILES pattern with wildcard * in place of R
+    
+    """
     @classmethod
     def from_dummy_smiles(cls, dummy_smiles: str, **kwargs) -> "Monomer":
         r_group_smiles = utils.replace_dummy_with_R(dummy_smiles)
@@ -26,25 +48,28 @@ class Monomer:
     def __init__(
             self,
             r_group_smiles: Union[str, "Monomer"],
-            central_atom_map: Dict[int, int] = {},
         ):
         if isinstance(r_group_smiles, type(self)):
             central_atom_map = r_group_smiles.central_atom_map
             r_group_smiles = r_group_smiles.r_group_smiles
             
         self.r_group_smiles = r_group_smiles
-        self.r_group_numbers = utils.get_r_group_numbers_from_smiles(r_group_smiles)
         self.dummy_smiles = utils.replace_R_with_dummy(r_group_smiles)
-        self.central_atom_map = dict(central_atom_map)
+        self.central_atom_map = {}
         self._setup_atom_accounting()
+
+    @property
+    def reverse_central_atom_map(self):
+        return {v: k for k, v in self.central_atom_map.items()}
+    
+    @property
+    def r_group_numbers(self):
+        return list(self.r_group_indices.keys())
 
     def _setup_atom_accounting(self, offmol=None):
         if offmol is not None:
             dummy_offmol = offutils.mol_from_smiles(self.dummy_smiles)
             assert offmol.n_atoms == dummy_offmol.n_atoms
-            # print(self.dummy_smiles)
-            # print(self.offmol.to_smiles())
-            # assert len(offmol.chemical_environment_matches(self.dummy_smiles))
         else:
             offmol = offutils.mol_from_smiles(self.dummy_smiles)
             atom_map = offmol.properties.get("atom_map", {})
@@ -52,6 +77,7 @@ class Monomer:
             for i, atom in enumerate(offmol.atoms):
                 if atom.atomic_number == 0:
                     r_groups[i] = atom_map.get(i, i + 1)
+                    atom_map.pop(i, None)
             offmol.properties["r_groups"] = r_groups
 
         self.offmol = offmol
@@ -59,7 +85,7 @@ class Monomer:
 
         # atom accounting
         self.r_group_indices = {}
-        self.r_bond_atom_indices = {}
+        self.atom_bonds_by_map_number = defaultdict(list)
         
         given_empty_atom_map = not self.central_atom_map
         off_map = self.offmol.properties.get("r_groups", {})
@@ -72,12 +98,18 @@ class Monomer:
                                     "*numbered* R groups. Given: "
                                     + self.r_group_smiles)
                 self.r_group_indices[num] = i
-                for bond in atom.bonds:
-                    index = offutils.get_other_bond_index(bond, i)
-                    self.r_bond_atom_indices[num] = index
             elif given_empty_atom_map:
                 self.central_atom_map[i] = len(self.central_atom_map) + 1
         self.offmol.properties["atom_map"] = self.central_atom_map
+        
+        for bond in self.offmol.bonds:
+            i = bond.atom1_index
+            j = bond.atom2_index
+            if i in self.central_atom_map and j in self.central_atom_map:
+                i_ = self.central_atom_map[i]
+                j_ = self.central_atom_map[j]
+                self.atom_bonds_by_map_number[i_].append(j_)
+                self.atom_bonds_by_map_number[j_].append(i_)
 
     def get_applicable_caps(
             self,
@@ -88,7 +120,7 @@ class Monomer:
         Get the applicable substituents for all R-groups, except
         the ignored number.
         """
-        r_nums = [r for r in self.r_group_numbers if r != ignore_r]
+        r_nums = [r for r in self.r_group_indices if r != ignore_r]
         # TODO: should I let this go through without fulfilling all Rs?
         keys, r_subs = [], []
         r_subs = [r_group_substituents.get(r, []) for r in r_nums]
@@ -99,7 +131,7 @@ class Monomer:
             r_group_substituents: Dict[int, List[Tuple[int, "Monomer"]]] = {},
         ) -> Dict[int, List[Dict[int, Tuple[int, "Monomer"]]]]:
         combinations = {}
-        for r in self.r_group_numbers:
+        for r in self.r_group_indices:
             substituents = self.get_applicable_caps(r_group_substituents,
                                                     ignore_r=r)
             combinations[r] = substituents

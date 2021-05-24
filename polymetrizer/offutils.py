@@ -24,7 +24,7 @@ def get_bonds(
     if pattern is None:
         # SINGLE BONDS
         ATOM = "[!$(*#*)&!$(*=*)&A&!D1:{i}]"
-        pattern = "-;!@".join([ATOM.format(i=i) for i in [3, 1, 2, 4]])
+        pattern = "-;!@".join([ATOM.format(i=i) for i in [4, 1, 2, 3]])
     
     matches = offmol.chemical_environment_matches(pattern)
     unique_bonds = set()
@@ -42,7 +42,6 @@ def get_bonds(
                 unique_bonds.add(bond)
                 unique_matches.add(group)
                 seen |= set(group)
-    
     if get_bonds_only:
         return unique_bonds
     return unique_matches

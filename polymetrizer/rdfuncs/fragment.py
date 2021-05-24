@@ -1,5 +1,7 @@
 from rdkit import Chem
-from typing import Iterable
+from typing import Iterable, List
+
+import numpy as np
 from openff.toolkit.topology import Molecule as OFFMolecule
 
 
@@ -8,7 +10,7 @@ from . import utils
 def fragment_into_dummy_smiles(offmol, cleave_bonds=[]):
     rdmol = Chem.RWMol(offmol.to_rdkit())
     utils.clear_atom_map_numbers(rdmol)
-    Chem.rdmolops.AssignStereochemistryFrom3D(rdmol)
+    utils.assign_stereochemistry(rdmol)
     dummy = Chem.Atom("*")
     r_linkages = {}
     counter = 1
@@ -25,6 +27,7 @@ def fragment_into_dummy_smiles(offmol, cleave_bonds=[]):
     mols = Chem.GetMolFrags(rdmol, asMols=True)
     for mol in mols:
         counter = 1
+        Chem.AssignStereochemistry(mol)
         for atom in mol.GetAtoms():
             if atom.GetSymbol() != "*":
                 atom.SetAtomMapNum(counter)
@@ -32,19 +35,34 @@ def fragment_into_dummy_smiles(offmol, cleave_bonds=[]):
     smiles = [utils.mol_to_smiles(m) for m in mols]
     return smiles, r_linkages
 
-
 def subset_mol(
         offmol: OFFMolecule,
         atom_indices: Iterable[int],
     ) -> OFFMolecule:
-
-    rdmol = Chem.RWMol(offmol.to_rdkit())
+    rdmol = offmol.to_rdkit()
     for index, num in offmol.properties.get("atom_map", {}).items():
         rdmol.GetAtomWithIdx(index).SetAtomMapNum(num)
-
-    to_remove = [i for i in range(offmol.n_atoms) if i not in atom_indices]
-    for i in to_remove[::-1]:
-        rdmol.RemoveAtom(i)
+    rdmol = utils.subset_rdmol(rdmol, atom_indices)
     rdmol = Chem.AddHs(rdmol)
     Chem.SanitizeMol(rdmol)
-    return OFFMolecule.from_rdkit(rdmol, allow_undefined_stereo=True)
+    return utils.offmol_from_mol(rdmol)
+
+
+def get_sub_smarts(offmol, atom_indices: List[int] = [],
+                   label_indices: List[int] = []):
+    rdmol = offmol.to_rdkit()
+    utils.assign_stereochemistry(rdmol)
+    for i, lix in enumerate(label_indices, 1):
+        at = rdmol.GetAtomWithIdx(int(lix))
+        at.SetAtomMapNum(i)
+    indices = list(np.concatenate([atom_indices, label_indices]))
+    atom_indices = sorted(map(int, set(indices)))
+    # rdmol = utils.subset_rdmol(rdmol, indices, check_bonds=False)
+
+    rdmol = Chem.RWMol(rdmol)
+    to_remove = [i for i in range(rdmol.GetNumAtoms()) if i not in atom_indices]
+    for i in to_remove[::-1]:
+        rdmol.RemoveAtom(i)
+    smarts = Chem.MolToSmarts(rdmol)
+    smarts = smarts.replace("#0", "*")
+    return smarts

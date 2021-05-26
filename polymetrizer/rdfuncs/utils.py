@@ -1,42 +1,42 @@
-from typing import Iterable, Set
-from collections import defaultdict
+from typing import Iterable
 
 from rdkit import Chem
 from openff.toolkit.topology import Molecule as OFFMolecule
-import numpy as np
+
 
 def mol_from_smiles(smiles):
     smiles_parser = Chem.rdmolfiles.SmilesParserParams()
     smiles_parser.removeHs = False
     return Chem.MolFromSmiles(smiles, smiles_parser)
 
+
 def mol_to_smarts(rdmol):
     smarts = Chem.MolToSmarts(rdmol, isomericSmiles=True)
     smarts = smarts.replace("#0", "*")
     return smarts
 
+
 def mol_to_smiles(rdmol):
     return Chem.MolToSmiles(rdmol, isomericSmiles=True, allHsExplicit=True)
+
 
 def assign_stereochemistry(rdmol):
     if rdmol.GetNumConformers():
         Chem.AssignStereochemistryFrom3D(rdmol)
     else:
-        Chem.AssignStereochemistry(rdmol)
+        Chem.AssignStereochemistry(rdmol, cleanIt=True)
 
-def offmol_from_mol(rdmol) -> OFFMolecule:
+
+def mol_to_offmol(rdmol) -> OFFMolecule:
+    # Chem.SanitizeMol(rdmol)
     assign_stereochemistry(rdmol)
     return OFFMolecule.from_rdkit(rdmol, allow_undefined_stereo=True)
 
-def clear_atom_map_numbers(rdmol):
-    for atom in rdmol.GetAtoms():
-        atom.SetAtomMapNum(0)
 
-def subset_rdmol(
-        rdmol: Chem.Mol,
-        atom_indices: Iterable[int],
-        check_bonds: bool = True,
-    ) -> Chem.Mol:
+def subset_rdmol(rdmol: Chem.Mol,
+                atom_indices: Iterable[int],
+                check_bonds: bool = True,
+                return_atom_indices: bool = False) -> Chem.Mol:
     rdmol = Chem.RWMol(rdmol)
     to_remove = [i for i in range(rdmol.GetNumAtoms()) if i not in atom_indices]
     if check_bonds:
@@ -51,48 +51,66 @@ def subset_rdmol(
                     n_bonds += 1
             if n_bonds > 1:
                 multiple_bonds.append(i)
+        atom_indices = sorted(atom_indices + multiple_bonds)
         to_remove = [i for i in to_remove if i not in multiple_bonds]
     for i in to_remove[::-1]:
         rdmol.RemoveAtom(i)
     rdmol.UpdatePropertyCache()
+    if return_atom_indices:
+        return rdmol, atom_indices
     return rdmol
 
 
-def get_atom_indices_bonded_to_indices(
-        rdmol: Chem.Mol,
-        atom_indices: Iterable[int],
-    ) -> Set[int]:
-    if not atom_indices:
-        return set()
-    partners = defaultdict(set)
-    for index in atom_indices:
-        index = int(index)
-        atom = rdmol.GetAtomWithIdx(index)
-        for bond in atom.GetBonds():
-            partners[index].add(bond.GetOtherAtomIdx(index))
-    
-    bonded = partners.get(atom_indices[0], set())
-    for index in atom_indices[1:]:
-        bonded &= partners.get(index, set())
-    return bonded
+def get_min_ring_size(rdatom):
+    if not rdatom.IsInRing():
+        return 0
+    min_ring = 10000
+    for i in range(min_ring):
+        if rdatom.IsInRingSize(i):
+            return i
+    return min_ring
 
 
-def substructure_search(target, pattern):
-    # smarts gives us query atoms
-    copy = Chem.RWMol(pattern)
-    for atom in copy.GetAtoms():
-        atom.SetIsotope(0)
-        atom.SetAtomMapNum(0)
-    
-    tmp = mol_from_smiles(mol_to_smiles(copy))
-    query = Chem.MolFromSmarts(mol_to_smarts(tmp))
+def get_chemper_atom_info(rdatom):
+    rings = len([b for b in rdatom.GetBonds() if b.IsInRing()])
+
+    return dict(
+            atomic_number=rdatom.GetAtomicNum(),
+            degree=rdatom.GetDegree(),
+            connectivity=rdatom.GetTotalDegree(),
+            valence=rdatom.GetTotalValence(),
+            formal_charge=rdatom.GetFormalCharge(),
+            hydrogen_count=rdatom.GetTotalNumHs(includeNeighbors=True),
+            index=rdatom.GetIdx(),
+            is_aromatic=rdatom.GetIsAromatic(),
+            ring_connectivity=rings,
+            is_in_ring=rdatom.IsInRing(),
+            min_ring_size=get_min_ring_size(rdatom),
+        )
 
 
-    # rearrange smarts into original order
-    match = pattern.GetSubstructMatch(query)
-    ordering = list(map(int, np.argsort(match)))
-    query = Chem.RenumberAtoms(query, ordering)
-    query = Chem.RWMol(query)
+def get_mol_chemper_info(oligomer):
+    rdmol = oligomer.offmol.to_rdkit()
+    info = {i: get_chemper_atom_info(rdmol.GetAtomWithIdx(i)) for i in oligomer.atom_oligomer_map}
+    return info
 
 
-    return target.GetSubstructMatches(query)
+def get_fragment_indices(oligomer):
+    rdmol = Chem.RWMol(oligomer.offmol.to_rdkit())
+    for bond in oligomer.monomer_bonds:
+        rdmol.RemoveBond(*bond)
+    return Chem.GetMolFrags(rdmol, asMols=False)
+
+
+def create_labeled_smarts(offmol, atom_indices=[], label_indices=[]):
+    rdmol = Chem.RWMol(offmol.to_rdkit())
+    for num, atom in enumerate(rdmol.GetAtoms(), 1):
+        atom.SetAtomMapNum(num)
+
+    indices = set(label_indices) | set(atom_indices)
+    to_del = [i for i in range(offmol.n_atoms) if i not in indices]
+    for index in to_del[::-1]:
+        rdmol.RemoveAtom(index)
+    rdmol.UpdatePropertyCache(strict=False)
+    smarts = mol_to_smarts(rdmol)
+    return smarts

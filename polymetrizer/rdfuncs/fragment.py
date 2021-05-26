@@ -7,9 +7,11 @@ from openff.toolkit.topology import Molecule as OFFMolecule
 
 from . import utils
 
+
 def fragment_into_dummy_smiles(offmol, cleave_bonds=[]):
     rdmol = Chem.RWMol(offmol.to_rdkit())
-    utils.clear_atom_map_numbers(rdmol)
+    for atom in rdmol.GetAtoms():
+        atom.SetAtomMapNum(0)
     utils.assign_stereochemistry(rdmol)
     dummy = Chem.Atom("*")
     r_linkages = {}
@@ -35,17 +37,27 @@ def fragment_into_dummy_smiles(offmol, cleave_bonds=[]):
     smiles = [utils.mol_to_smiles(m) for m in mols]
     return smiles, r_linkages
 
-def subset_mol(
-        offmol: OFFMolecule,
-        atom_indices: Iterable[int],
-    ) -> OFFMolecule:
+
+def subset_offmol(offmol: OFFMolecule,
+                  atom_indices: Iterable[int],
+                  check_bonds: bool = True,
+                  return_atom_indices: bool = False,
+                  sanitize: bool = True,
+                  add_hs: bool = True) -> OFFMolecule:
     rdmol = offmol.to_rdkit()
     for index, num in offmol.properties.get("atom_map", {}).items():
         rdmol.GetAtomWithIdx(index).SetAtomMapNum(num)
-    rdmol = utils.subset_rdmol(rdmol, atom_indices)
-    rdmol = Chem.AddHs(rdmol)
-    Chem.SanitizeMol(rdmol)
-    return utils.offmol_from_mol(rdmol)
+    rdmol, used_indices = utils.subset_rdmol(rdmol, atom_indices, check_bonds=check_bonds,
+                                             return_atom_indices=True)
+    rdmol.UpdatePropertyCache()
+    if add_hs:
+        rdmol = Chem.AddHs(rdmol)
+    if sanitize:
+        Chem.SanitizeMol(rdmol)
+    mol = utils.mol_to_offmol(rdmol)
+    if return_atom_indices:
+        return mol, used_indices
+    return mol
 
 
 def get_sub_smarts(offmol, atom_indices: List[int] = [],

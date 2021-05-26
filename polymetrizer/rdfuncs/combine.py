@@ -131,7 +131,7 @@ def attach_substituent_and_label(
     ) -> "Oligomer":
     product = attach_substituent(reactant_r_group, substituent_r_group, reactant, substituent)
 
-    utils.assign_stereochemistry(product)
+    # utils.assign_stereochemistry(product)
     central_atom_map = {}
     r_groups = {}
     atom_oligomer_map = {}
@@ -151,6 +151,7 @@ def attach_substituent_and_label(
         if atom.HasProp(OLIGOMER_ATOM_INDEX_PROP):
             string = atom.GetProp(OLIGOMER_ATOM_INDEX_PROP)
             atom_oligomer_map[idx] = tuple_from_string(string)
+        atom.SetIsotope(0)
 
     reverse = reactant.reverse_central_atom_map
     for i, num in central_atom_map.items():
@@ -200,7 +201,6 @@ def attach_substituent_and_label(
     
     
     offmol = utils.offmol_from_mol(product)
-
 
     # unfound = [x for x in reactant.oligomer_bond_map if x not in atom_oligomer_map.values()]
     # ignore = []

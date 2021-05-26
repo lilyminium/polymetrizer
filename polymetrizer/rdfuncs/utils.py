@@ -22,9 +22,10 @@ def assign_stereochemistry(rdmol):
     if rdmol.GetNumConformers():
         Chem.AssignStereochemistryFrom3D(rdmol)
     else:
-        Chem.AssignStereochemistry(rdmol)
+        Chem.AssignStereochemistry(rdmol, cleanIt=True)
 
 def offmol_from_mol(rdmol) -> OFFMolecule:
+    Chem.SanitizeMol(rdmol)
     assign_stereochemistry(rdmol)
     return OFFMolecule.from_rdkit(rdmol, allow_undefined_stereo=True)
 

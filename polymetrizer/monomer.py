@@ -57,6 +57,15 @@ class Monomer:
         self.dummy_smiles = utils.replace_R_with_dummy(r_group_smiles)
         self.central_atom_map = {}
         self._setup_atom_accounting()
+    
+    def __eq__(self, other):
+        return self.offmol == other.offmol
+
+    def __hash__(self):
+        items = (self.offmol,
+                 tuple(sorted(self.central_atom_map.items())),
+                )
+        return hash(items)
 
     @property
     def reverse_central_atom_map(self):

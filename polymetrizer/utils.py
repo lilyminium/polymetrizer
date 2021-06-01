@@ -37,5 +37,7 @@ def average_dicts(dicts: List[Dict[str, Any]] = []):
     collector = defaultdict(list)
     for dct in dicts:
         for k, v in dct.items():
-            collector[k].append(v)
-    return {k: np.mean(v, axis=0) for k, v in collector.items()}
+            if not isinstance(v, str):
+                collector[k].append(v)
+    n_items = len(dicts)
+    return {k: np.sum(v, axis=0)/n_items for k, v in collector.items()}

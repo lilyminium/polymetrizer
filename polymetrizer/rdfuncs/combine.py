@@ -104,8 +104,8 @@ def attach_substituent(
     rdreactant = oligomer_to_reactant(reactant, reactant_r_group)
     rdsub = oligomer_to_substituent(substituent, substituent_r_group)
 
-    # print(utils.mol_to_smiles(rdreactant))
-    # print(utils.mol_to_smiles(rdsub))
+    print(utils.mol_to_smiles(rdreactant))
+    print(utils.mol_to_smiles(rdsub))
     # 
     # run reaction
     reaction = f"[*:{SUBSTITUENT_ATOMNUM}]-[{reactant_r_group}*]>>"
@@ -116,6 +116,8 @@ def attach_substituent(
     products = rxn.RunReactants((rdreactant,))
     assert len(products) == 1 and len(products[0]) == 1
     product = products[0][0]
+    print(utils.mol_to_smiles(product))
+    print("----")
 
     # replace_props(product, rdreactant, reverse=True)
     replace_props(product, rdsub, reverse=False)

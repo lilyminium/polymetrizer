@@ -43,6 +43,7 @@ def subset_mol(
     for index, num in offmol.properties.get("atom_map", {}).items():
         rdmol.GetAtomWithIdx(index).SetAtomMapNum(num)
     rdmol = utils.subset_rdmol(rdmol, atom_indices)
+    rdmol.UpdatePropertyCache()
     rdmol = Chem.AddHs(rdmol)
     Chem.SanitizeMol(rdmol)
     return utils.offmol_from_mol(rdmol)
@@ -66,3 +67,9 @@ def get_sub_smarts(offmol, atom_indices: List[int] = [],
     smarts = Chem.MolToSmarts(rdmol)
     smarts = smarts.replace("#0", "*")
     return smarts
+
+
+# def get_sub_smarts(offmol, atom_indices, label_indices):
+#     from chemper.mol_toolkits.mol_toolkit import Mol
+    
+#     chmol = Mol(offmol.to_rdkit())

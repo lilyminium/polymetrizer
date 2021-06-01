@@ -65,6 +65,12 @@ class Oligomer(Monomer):
 
         self.oligomer_bond_map = {}
         self.atom_oligomer_map = atom_oligomer_map
+
+    def __hash__(self):
+        items = (self.offmol,
+                 tuple(sorted(self.central_atom_map.items())),
+                 tuple(sorted(self.atom_oligomer_map.items())))
+        return hash(items)
         
 
     @property
@@ -199,9 +205,7 @@ class Oligomer(Monomer):
                                            central_atom_map=new_atom_map,
                                            atom_oligomer_map=new_oligomer_map)
 
-    def get_central_forcefield_parameters(self, forcefield, n_neighbors: int=3):
-        handler_kwargs = self.get_forcefield_parameters(forcefield)
-        relevant_indices = self.get_central_and_neighbor_indices(n_neighbors)
+    def select_relevant_parameters(self, handler_kwargs, relevant_indices):
         central_kwargs = {}
         for handler_name, atomgroup_kwargs in handler_kwargs.items():
             central_handler = {}
@@ -214,6 +218,22 @@ class Oligomer(Monomer):
                 central_handler[qualified] = hkwargs
             central_kwargs[handler_name] = central_handler
         return central_kwargs
+
+    def get_qualified_atoms(self, indices, ordered=True):
+        try:
+            qualified = tuple(self.atom_oligomer_map[i] for i in indices)
+        except KeyError:
+            return
+        if ordered and qualified[0] > qualified[-1]:
+            qualified = qualified[::-1]
+        return qualified
+
+
+    def get_central_forcefield_parameters(self, forcefield, n_neighbors: int=3):
+        print(self.offmol.to_smiles())
+        handler_kwargs = self.get_forcefield_parameters(forcefield)
+        relevant_indices = self.get_central_and_neighbor_indices(n_neighbors)
+        return self.select_relevant_parameters(handler_kwargs, relevant_indices)
 
     def contains_qualified_atoms(
             self,

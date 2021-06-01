@@ -97,3 +97,63 @@ def substructure_search(target, pattern):
 
 
     return target.GetSubstructMatches(query)
+
+
+def get_chemper_mols(oligomers):
+    from chemper.mol_toolkits.mol_toolkit import Mol
+    return [Mol(x.offmol.to_rdkit()) for x in oligomers]
+
+
+def get_min_ring_size(rdatom):
+    if not rdatom.IsInRing():
+        return 0
+    min_ring = 10000
+    for i in range(min_ring):
+        if rdatom.IsInRingSize(i):
+            return i
+    return min_ring
+
+def get_chemper_atom_info(rdatom):
+    rings = len([b for b in rdatom.GetBonds() if b.IsInRing()])
+    
+    return dict(
+            atomic_number=rdatom.GetAtomicNum(),
+            degree=rdatom.GetDegree(),
+            connectivity=rdatom.GetTotalDegree(),
+            valence=rdatom.GetTotalValence(),
+            formal_charge=rdatom.GetFormalCharge(),
+            hydrogen_count=rdatom.GetTotalNumHs(includeNeighbors=True),
+            index=rdatom.GetIdx(),
+            is_aromatic=rdatom.GetIsAromatic(),
+            ring_connectivity=rings,
+            is_in_ring=rdatom.IsInRing(),
+            min_ring_size = get_min_ring_size(rdatom),
+        )
+
+def get_chemper_bond_info(rdbond):
+    order = rdbond.GetBondTypeAsDouble()
+    ORDERS = {1:'-', 2:'=', 3:'#', 1.5:':'}
+    return dict(
+            index=rdbond.GetIdx(),
+            order=order,
+            order_symbol=ORDERS.get(order, "~"),
+            is_in_ring=rdbond.IsInRing(),
+            is_aromatic=rdbond.GetIsAromatic()
+        )
+
+
+def offmol_to_graph(offmol):
+    import networkx as nx
+
+    graph = nx.Graph()
+    rdmol = offmol.to_rdkit()
+    Chem.AssignStereochemistry(rdmol)
+    for i, atom in enumerate(rdmol.GetAtoms()):
+        graph.add_node(i, **get_chemper_atom_info(atom))
+    
+    for bond in rdmol.GetBonds():
+        u = bond.GetBeginAtomIdx()
+        v = bond.GetEndAtomIdx()
+        graph.add_edge(u, v, **get_chemper_bond_info(bond))
+
+    return graph

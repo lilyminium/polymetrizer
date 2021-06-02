@@ -38,15 +38,21 @@ def fragment_into_dummy_smiles(offmol, cleave_bonds=[]):
 def subset_mol(
         offmol: OFFMolecule,
         atom_indices: Iterable[int],
+        check_bonds=True,
+        return_atom_indices=False,
     ) -> OFFMolecule:
     rdmol = offmol.to_rdkit()
     for index, num in offmol.properties.get("atom_map", {}).items():
         rdmol.GetAtomWithIdx(index).SetAtomMapNum(num)
-    rdmol = utils.subset_rdmol(rdmol, atom_indices)
+    rdmol, used_indices = utils.subset_rdmol(rdmol, atom_indices, check_bonds=check_bonds,
+                                             return_atom_indices=True)
     rdmol.UpdatePropertyCache()
     rdmol = Chem.AddHs(rdmol)
     Chem.SanitizeMol(rdmol)
-    return utils.offmol_from_mol(rdmol)
+    mol = utils.offmol_from_mol(rdmol)
+    if return_atom_indices:
+        return mol, used_indices
+    return mol
 
 
 def get_sub_smarts(offmol, atom_indices: List[int] = [],

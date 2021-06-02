@@ -42,7 +42,7 @@ def get_parameter_smirks(atom_oligomers={}, unique_oligomers=[]):
     #     print(f"atoms {k}: {v}")
 
     for atoms, (_, smirks) in zip(atom_groups, smirker.current_smirks):
-        print(smirks)
+        # print(smirks)
         atom_smirks[atoms] = smirks
     return atom_smirks
 

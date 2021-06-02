@@ -39,9 +39,12 @@ class Monomer:
 
     @classmethod
     def from_offmolecule(cls, offmol, **kwargs) -> "Monomer":
+        # print("in from_offmol")
         r_smiles = offmol.to_smiles(mapped=True)
         new = cls(r_smiles, **kwargs)
+        # print("made class")
         new._setup_atom_accounting(offmol)
+        # print("atom accounting")
         return new
     
 

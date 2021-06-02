@@ -167,7 +167,7 @@ class Polymetrizer:
                         new_caps[partner].extend([(r, x) for x in monomer_list])
             caps = new_caps
             n_neighbor_monomers -= 1
-
+        
         self.monomer_oligomers = []
         self.oligomers = []
         for i, monomer in enumerate(self.monomers):
@@ -263,7 +263,7 @@ class Polymetrizer:
 
             smirker = Smirker(self.oligomers, handler_kwargs)
             smirker.get_hierarchical_matches()
-            for parameter in smirker.sorted_parameters:
+            for parameter in smirker.sorted_parameters[::-1]:
                 symbols = []
                 for qual in parameter.qualified_atoms:
                     symb = []
@@ -276,6 +276,7 @@ class Polymetrizer:
                 for smirks in parameter.smirks:
                     param = dict(**parameter.param)
                     param["smirks"] = smirks
+                    # print(smirks)
                     try:
                         handler.add_parameter(param)
                     except:
@@ -359,8 +360,6 @@ class Polymetrizer:
                     for smirks in parameter.smirks:
                         param = dict(**parameter.param)
                         param["smirks"] = smirks
-                        print(smirks)
-                        print("")
                         try:
                             handler.add_parameter(param)
                         except:
@@ -541,7 +540,8 @@ class Polymetrizer:
             for k in residue_based:
                 specific_kwargs[k] = averaged_handler_kwargs.pop(k, {})
             self.build_residue_forcefield(new_ff, specific_kwargs)
-        self.build_combination_forcefield(new_ff, averaged_handler_kwargs)
+        if averaged_handler_kwargs:
+            self.build_combination_forcefield(new_ff, averaged_handler_kwargs)
         return new_ff
 
 

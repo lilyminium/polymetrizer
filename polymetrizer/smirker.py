@@ -3,8 +3,11 @@ from collections import defaultdict
 import re
 import numpy as np
 
+from openff.toolkit.topology import Molecule
+
 from rdkit import Chem
 from .tkfuncs import offmol_to_graph
+from .rdfuncs import mol_to_smarts
 from . import ommutils
 from openff.toolkit.utils.toolkits import *
 
@@ -86,13 +89,16 @@ class ChemperGraph:
 
         rdmol = Chem.RWMol(self.rdmol)
         indices = sorted(set(atom_indices) | set(label_indices))
+        additional_indices = []
         for atom in rdmol.GetAtoms():
             atom.SetAtomMapNum(atom.GetIdx() + 1)
+        Chem.SanitizeMol(rdmol)
+
         to_del = list(i for i in range(self.oligomer.offmol.n_atoms) if i not in indices)
         for i in to_del[::-1]:
             rdmol.RemoveAtom(i)
         rdmol.UpdatePropertyCache()
-        raw_smarts = Chem.MolToSmarts(rdmol)
+        raw_smarts = mol_to_smarts(rdmol)
         smirks = raw_smarts
         PATTERN = "\[[0-9a-zA-Z#@]*:([0-9]+)]"
         for num in re.findall(PATTERN, raw_smarts):
@@ -100,14 +106,6 @@ class ChemperGraph:
             atom_smirks = create_atom_smirks(info, compressed)
             new_pattern = f"\[[0-9a-zA-Z#@]*:{num}]"
             smirks = re.sub(new_pattern, atom_smirks, smirks)
-        # print(raw_smarts)
-        # raise ValueError()
-
-        # subgraph = self.graph.subgraph(indices)
-        # first = indices[0]
-        # seen = {first}
-        # smirks = _get_smirks_iteration(subgraph, -1, first, compressed, seen)
-        # print(smirks)
         return smirks
 
     def get_qualified_indices(self, qualified_atoms):
@@ -116,7 +114,7 @@ class ChemperGraph:
     def get_qualified_residue_indices(self, qualified_atoms):
         atom_indices = []
         monomers, _ = zip(*qualified_atoms)
-        for (monomer, atom), index in self.reverse_atom_oligomer_map.items():
+        for index, (monomer, atom) in self.oligomer.atom_oligomer_map.items():
             if monomer in monomers:
                 atom_indices.append(index)
         return atom_indices
@@ -126,14 +124,15 @@ class ChemperGraph:
         label_indices = None
         if self.oligomer.contains_qualified_atoms(qualified_atoms):
             label_indices = self.get_qualified_indices(qualified_atoms)
-            atom_indices = self.get_qualified_residue_indices(qualified_atoms)
-            # if any(x in self.oligomer.central_atom_map for x in label_indices):
-            # print("labels: ", label_indices)
-            # print(self.oligomer.offmol.atoms[label_indices[0]].atomic_number)
-            smirks = self.get_smirks(atom_indices, label_indices, compressed=compressed)
-            match = self.oligomer.offmol.chemical_environment_matches(smirks, toolkit_registry=RDKIT_TOP_REGISTRY)
-            assert (match and len(match[0]) == len(label_indices))
-                # print(smirks)
+            
+            if any(x in self.oligomer.central_atom_map for x in label_indices):
+                atom_indices = self.get_qualified_residue_indices(qualified_atoms)
+                smirks = self.get_smirks(atom_indices, label_indices, compressed=compressed)
+
+                match = self.oligomer.offmol.chemical_environment_matches(smirks, toolkit_registry=RDKIT_TOP_REGISTRY)
+
+                assert (match and len(match[0]) == len(label_indices))
+
         if return_label_indices:
             return smirks, label_indices
         return smirks
@@ -169,8 +168,8 @@ class ChemperGraph:
         label_indices = self.get_qualified_indices(all_atoms)
         atom_indices = np.arange(self.oligomer.offmol.n_atoms)
         smirks = self.get_smirks(atom_indices, label_indices, compressed=compressed)
-        # match = self.oligomer.offmol.chemical_environment_matches(smirks)
-        # assert (match and len(match[0]) == len(label_indices))
+        match = self.oligomer.offmol.chemical_environment_matches(smirks)
+        assert (match and len(match[0]) == len(label_indices))
         if return_label_indices:
             return smirks, label_indices
         return smirks
@@ -206,16 +205,12 @@ class Parameter:
                 if smirks is not None:
                     self.smirks.add(smirks)
                     self.expected_matches.add((i, tuple(expected)))
-        # print(self.qualified_atoms, self.expected_matches, graphs[0].oligomer.atom_oligomer_map.values())
-        # print(self.smirks)
         symbols = []
         for qual in self.qualified_atoms:
             symb = []
             for i, atom in qual:
                 symb.append(graphs[i].oligomer.offmol.atoms[atom].atomic_number)
             symbols.append(symb)
-        # print(symbols)
-        # print("-----")
 
     def get_smirks_matches(self, smirks):
         unique_matches = set()
@@ -232,6 +227,7 @@ class Parameter:
     def get_hierarchical_matches(self, oligomers, seen):
         self.matches = set()
         for smirks in self.smirks:
+            # print(smirks)
             for i, oligomer in enumerate(oligomers):
                 matches = oligomer.offmol.chemical_environment_matches(smirks, toolkit_registry=RDKIT_TOP_REGISTRY)
                 if not matches:
@@ -252,13 +248,12 @@ class Parameter:
 
 class Smirker:
 
-    def __init__(self, oligomers, averaged_parameters, combine=False, compressed=False):
+    def __init__(self, oligomers, averaged_parameters, combine=False, compressed=True):
         self.oligomers = oligomers
         self.graphs = [ChemperGraph(x) for x in oligomers]
         self.averaged_parameters = {k: dict(**v) for k, v in averaged_parameters.items()}
         self.atoms_to_parameter = {}
         sorted_keys = sorted(averaged_parameters.keys())
-        # print(sorted_keys)
 
         if not combine:
             for i, qualified_atoms in enumerate(sorted_keys):
@@ -266,6 +261,9 @@ class Smirker:
                 self.atoms_to_parameter[qualified_atoms] = Parameter([qualified_atoms], param, index=i)
             for param in self.atoms_to_parameter.values():
                 param.get_smirks_and_expected_values(self.graphs, compressed=compressed)
+                if not param.smirks:
+                    print(param.qualified_atoms)
+                    raise ValueError()
         else:
             for graph in self.graphs:
                 param = graph.get_combined_smirks_param(averaged_parameters, compressed=compressed)
@@ -294,7 +292,8 @@ class Smirker:
         seen = set()
         parameters = self.sorted_parameters
         max_index = parameters[-1].index + 1
-        for param in parameters:
+        for i, param in enumerate(parameters):
+            # print("\n", i)
             param.get_hierarchical_matches(oligomers, seen)
         
         # print([x.index for x in parameters])
@@ -310,21 +309,14 @@ class Smirker:
                 if qualified:
                     n_extra_or_missing += 1
                     resolved = False
-                    # print(i, param.qualified_atoms, "len extra", len(qualified), qualified)
                 for qual in qualified:
                     other_param = self.atoms_to_parameter[qual]
-                    # print(param.param)
-                    # print(other_param.param)
                     if param.has_equal_parameters(other_param):
                         self.merge_parameters(param, other_param)
                     elif other_param.smirks.intersection(param.smirks):
                         copied = dict(**param.param)
                         param.param = {k: np.mean([copied[k], other_param.param[k]], axis=0) for k in copied.keys()}
                         self.merge_parameters(param, other_param)
-                        # print(other_param.smirks.intersection(param.smirks))
-                        # print(param.param)
-                        # print(other_param.param)
-                        # raise ValueError()
                     else:
                         param.index = max_index + i
         for i, param in enumerate(parameters):
@@ -343,15 +335,9 @@ class Smirker:
         # print(f"  num extra or missing: {n_extra_or_missing}")
         return resolved
     
-    def get_hierarchical_matches(self, maxiter=10):
+    def get_hierarchical_matches(self, maxiter=6):
         resolved = False
         while not resolved and maxiter:
-            # print("trying again")
-            # print(len(set(self.atoms_to_parameter.values())))
             resolved = self._get_hierarchical_matches(self.oligomers)
             maxiter -= 1
 
-        # print("\n----\n")
-
-        # print(self.atoms_to_parameter[((5, 14),)].param)
-        # print(self.atoms_to_parameter[((2, 18),)].param)

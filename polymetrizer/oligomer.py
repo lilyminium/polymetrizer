@@ -64,7 +64,7 @@ class Oligomer(Monomer):
         self._setup_atom_accounting()
 
         self.oligomer_bond_map = {}
-        self.atom_oligomer_map = atom_oligomer_map
+        self.atom_oligomer_map = dict(atom_oligomer_map)
 
     def __hash__(self):
         items = (self.offmol,
@@ -185,7 +185,8 @@ class Oligomer(Monomer):
                 fragment_indices |= indices
         
         atom_indices = sorted(fragment_indices)
-        newmol = subset_mol(self.offmol, atom_indices)
+        newmol, atom_indices = subset_mol(self.offmol, atom_indices, check_bonds=True,
+                                          return_atom_indices=True)
 
         new_atom_map = {}
         new_oligomer_map = {}
@@ -230,7 +231,6 @@ class Oligomer(Monomer):
 
 
     def get_central_forcefield_parameters(self, forcefield, n_neighbors: int=3):
-        print(self.offmol.to_smiles())
         handler_kwargs = self.get_forcefield_parameters(forcefield)
         relevant_indices = self.get_central_and_neighbor_indices(n_neighbors)
         return self.select_relevant_parameters(handler_kwargs, relevant_indices)

@@ -37,6 +37,7 @@ def subset_rdmol(
         rdmol: Chem.Mol,
         atom_indices: Iterable[int],
         check_bonds: bool = True,
+        return_atom_indices=False,
     ) -> Chem.Mol:
     rdmol = Chem.RWMol(rdmol)
     to_remove = [i for i in range(rdmol.GetNumAtoms()) if i not in atom_indices]
@@ -52,10 +53,13 @@ def subset_rdmol(
                     n_bonds += 1
             if n_bonds > 1:
                 multiple_bonds.append(i)
+        atom_indices = sorted(atom_indices + multiple_bonds)
         to_remove = [i for i in to_remove if i not in multiple_bonds]
     for i in to_remove[::-1]:
         rdmol.RemoveAtom(i)
     rdmol.UpdatePropertyCache()
+    if return_atom_indices:
+        return rdmol, atom_indices
     return rdmol
 
 

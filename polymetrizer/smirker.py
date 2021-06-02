@@ -6,6 +6,17 @@ import numpy as np
 from rdkit import Chem
 from .tkfuncs import offmol_to_graph
 from . import ommutils
+from openff.toolkit.utils.toolkits import *
+
+RDKIT_TOP_REGISTRY = ToolkitRegistry(
+    toolkit_precedence=[
+        RDKitToolkitWrapper,
+        OpenEyeToolkitWrapper,
+        AmberToolsToolkitWrapper,
+        BuiltInToolkitWrapper,
+    ],
+    exception_if_unavailable=False,
+)
 
 FULL_SMIRKS = "[#{atomic_number:d}{aromaticity}H{hydrogen_count:d}X{connectivity:d}x{ring_connectivity:d}{ring_size}{formal_charge:+d}{label}]"
 COMPRESSED_SMIRKS = "[#{atomic_number:d}{label}]"
@@ -120,7 +131,7 @@ class ChemperGraph:
             # print("labels: ", label_indices)
             # print(self.oligomer.offmol.atoms[label_indices[0]].atomic_number)
             smirks = self.get_smirks(atom_indices, label_indices, compressed=compressed)
-            match = self.oligomer.offmol.chemical_environment_matches(smirks)
+            match = self.oligomer.offmol.chemical_environment_matches(smirks, toolkit_registry=RDKIT_TOP_REGISTRY)
             assert (match and len(match[0]) == len(label_indices))
                 # print(smirks)
         if return_label_indices:

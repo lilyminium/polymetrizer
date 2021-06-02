@@ -2,7 +2,7 @@ from typing import List, Dict, Optional, Set, Tuple
 from collections import defaultdict
 import warnings
 
-from openff.fragmenter.fragment import Fragmenter
+# from openff.fragmenter.fragment import Fragmenter
 from openff.toolkit.topology import Molecule as OFFMolecule
 from openff.toolkit.typing.engines.smirnoff.forcefield import ForceField
 
@@ -108,13 +108,17 @@ class Polymetrizer:
                                    ignore_neighbors=True,
                                    bond_atom_numbers=bond_atom_numbers,
                                    get_bonds_only=True)
-        smiles, r_linkages = fragment_into_dummy_smiles(offmol, bonds)
-        monomers = [Monomer.from_dummy_smiles(smi) for smi in smiles]
-        new = cls(monomers, r_linkages)
+        new = cls.from_offmolecule_and_bonds(offmol, bonds)
         if return_cleaved_bonds:
             return new, bonds
         return new
-        
+
+    @classmethod
+    def from_offmolecule_and_bonds(cls, offmol, bonds):
+        smiles, r_linkages = fragment_into_dummy_smiles(offmol, bonds)
+        monomers = [Monomer.from_dummy_smiles(smi) for smi in smiles]
+        return cls(monomers, r_linkages)
+                
 
     def __init__(
             self,
@@ -149,7 +153,7 @@ class Polymetrizer:
     def create_oligomers(
             self,
             n_neighbor_monomers: int = 1,
-            fragmenter: Optional[Fragmenter] = None,
+            fragmenter=None, #: Optional[Fragmenter] = None,
         ):
         # TODO: is Hs the best way to go?
         hydrogen = Oligomer("([R1])[H]")
@@ -475,7 +479,8 @@ class Polymetrizer:
             forcefield: ForceField,
             n_neighbor_monomers_in_oligomer: int = 1,
             n_overlapping_atoms: int = 3,
-            fragmenter: Optional[Fragmenter] = None,
+            fragmenter=None,
+            # fragmenter: Optional[Fragmenter] = None,
             residue_based: bool = True,
         ):
         """

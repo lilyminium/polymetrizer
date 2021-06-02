@@ -220,7 +220,7 @@ class Parameter:
     def get_smirks_matches(self, smirks):
         unique_matches = set()
         for oligomer in self.oligomers:
-            matches = oligomer.offmol.chemical_environment_matches(smirks)
+            matches = oligomer.offmol.chemical_environment_matches(smirks, toolkit_registry=RDKIT_TOP_REGISTRY)
             if not matches:
                 continue
             for match in matches:
@@ -233,7 +233,7 @@ class Parameter:
         self.matches = set()
         for smirks in self.smirks:
             for i, oligomer in enumerate(oligomers):
-                matches = oligomer.offmol.chemical_environment_matches(smirks)
+                matches = oligomer.offmol.chemical_environment_matches(smirks, toolkit_registry=RDKIT_TOP_REGISTRY)
                 if not matches:
                     continue
                 for match in matches:

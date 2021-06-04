@@ -172,6 +172,7 @@ class Oligomer(Monomer):
     def fragment_around_central_atoms(self, fragmenter) -> "Oligomer":
         if isinstance(fragmenter, type):
             fragmenter = fragmenter()
+        print("fragmenting", type(self.offmol.properties["atom_map"]))
         results = fragmenter.fragment(self.offmol)
         fragments = []
         central_atom_indices = set(self.central_atom_map)

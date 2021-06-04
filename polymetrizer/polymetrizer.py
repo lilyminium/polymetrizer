@@ -172,6 +172,8 @@ class Polymetrizer:
         self.oligomers = []
         for i, monomer in enumerate(self.monomers):
             capped_monomers = monomer.generate_substituted(caps)
+            for i in capped_monomers:
+                print(type(i.offmol.properties["atom_map"]))
             self.monomer_oligomers.append(capped_monomers)
             if fragmenter is not None:
                 capped_monomers = [x.fragment_around_central_atoms(fragmenter)

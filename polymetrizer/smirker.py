@@ -13,8 +13,9 @@ from openff.toolkit.utils.toolkits import *
 
 RDKIT_TOP_REGISTRY = ToolkitRegistry(
     toolkit_precedence=[
-        RDKitToolkitWrapper,
+        # RDKitToolkitWrapper,
         OpenEyeToolkitWrapper,
+        RDKitToolkitWrapper,
         AmberToolsToolkitWrapper,
         BuiltInToolkitWrapper,
     ],
@@ -130,8 +131,8 @@ class ChemperGraph:
                 smirks = self.get_smirks(atom_indices, label_indices, compressed=compressed)
 
                 match = self.oligomer.offmol.chemical_environment_matches(smirks, toolkit_registry=RDKIT_TOP_REGISTRY)
-
-                assert (match and len(match[0]) == len(label_indices))
+                assert match
+                assert len(match[0]) == len(label_indices)
 
         if return_label_indices:
             return smirks, label_indices

@@ -6,8 +6,7 @@ import warnings
 from openff.toolkit.topology import Molecule as OFFMolecule
 from openff.toolkit.typing.engines.smirnoff.forcefield import ForceField
 
-from .monomer import Monomer
-from .oligomer import Oligomer
+from .oligomer import Oligomer, Monomer, create_hydrogen_caps
 from .smirker import Smirker
 from . import utils, offutils, chputils
 
@@ -125,13 +124,13 @@ class Polymetrizer:
             monomers: List[Monomer] = [],
             r_linkages: Dict[int, Set[int]] = {},
         ):
-        self.monomers = [Oligomer.with_oligomer_index(m, index=i) for i, m in enumerate(monomers)]
+        self.monomers = monomers
 
         # if no r_linkages, just set self-to-self
         if not r_linkages:
             r_linkages = {}
             for monomer in self.monomers:
-                for num in monomer.r_group_numbers:
+                for num in monomer.r_group_indices:
                     r_linkages[num] = {num}
     
         # symmetrize links
@@ -141,13 +140,13 @@ class Polymetrizer:
             for partner in partners:
                 self.r_linkages[partner].add(num)
 
-        self.r_group_caps = defaultdict(list)
+        self.caps_for_r_groups = defaultdict(list)
         for monomer in self.monomers:
             for num in monomer.r_group_numbers:
                 for partner in self.r_linkages[num]:
-                    self.r_group_caps[partner].append((num, monomer))
+                    self.caps_for_r_groups[partner].append((num, monomer))
         
-        self.monomer_oligomers = []
+        self.monomer_oligomers = defaultdict(list)
         self.oligomers = []
     
     def create_oligomers(
@@ -156,25 +155,21 @@ class Polymetrizer:
             fragmenter=None, #: Optional[Fragmenter] = None,
         ):
         # TODO: is Hs the best way to go?
-        hydrogen = Oligomer("([R1])[H]")
-        caps = {num: [(1, hydrogen)] for num in self.r_group_caps}
+
+        caps = create_hydrogen_caps(self.caps_for_r_groups)
         while n_neighbor_monomers:
             new_caps = defaultdict(list)
-            for i, monomer in enumerate(self.monomers):
+            for monomer in self.monomers:
                 substituted = monomer.generate_substituted_caps(caps)
-                for r, monomer_list in substituted.items():
-                    for partner in self.r_linkages[r]:
-                        new_caps[partner].extend([(r, x) for x in monomer_list])
+                for root_r, monomer_list in substituted.items():
+                    for partner in self.r_linkages[root_r]:
+                        new_caps[partner].extend([(root_r, x) for x in monomer_list])
             caps = new_caps
             n_neighbor_monomers -= 1
         
-        self.monomer_oligomers = []
-        self.oligomers = []
-        for i, monomer in enumerate(self.monomers):
+        for monomer in self.monomers:
             capped_monomers = monomer.generate_substituted(caps)
-            for i in capped_monomers:
-                print(type(i.offmol.properties["atom_map"]))
-            self.monomer_oligomers.append(capped_monomers)
+            self.monomer_oligomers[monomer].extend(capped_monomers)
             if fragmenter is not None:
                 capped_monomers = [x.fragment_around_central_atoms(fragmenter)
                                    for x in capped_monomers]
@@ -348,7 +343,7 @@ class Polymetrizer:
         ) -> ForceField:
         combinations = []
         for monomer in self.monomers:
-            built = monomer.build_all_combinations(self.r_group_caps)
+            built = monomer.build_all_combinations(self.caps_for_r_groups)
             combinations.append(built)
 
         for handler_name, handler_kwargs in averaged_handler_kwargs.items():

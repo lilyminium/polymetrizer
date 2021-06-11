@@ -161,3 +161,29 @@ def offmol_to_graph(offmol):
         graph.add_edge(u, v, **get_chemper_bond_info(bond))
 
     return graph
+
+
+def get_mol_chemper_info(oligomer):
+    rdmol = oligomer.offmol.to_rdkit()
+    info = {i: get_chemper_atom_info(rdmol.GetAtomWithIdx(i)) for i in oligomer.atom_oligomer_map}
+    return info
+
+
+def get_fragment_indices(oligomer):
+    rdmol = Chem.RWMol(oligomer.offmol.to_rdkit())
+    for bond in oligomer.monomer_bonds:
+        rdmol.RemoveBond(*bond)
+    return Chem.GetMolFrags(rdmol, asMols=False)
+
+
+def create_labeled_smarts(offmol, atom_indices=[], label_indices=[]):
+    rdmol = Chem.RWMol(offmol.to_rdkit())
+    for num, index in enumerate(atom_indices, 1):
+        rdmol.GetAtomWithIdx(index).SetAtomMapNum(num)
+    
+    indices = set(label_indices) | set(atom_indices)
+    to_del = [i for i in range(offmol.n_atoms) if i not in indices]
+    for index in to_del[::-1]:
+        rdmol.RemoveAtom(index)
+    rdmol.UpdatePropertyCache()
+    return mol_to_smarts(rdmol)

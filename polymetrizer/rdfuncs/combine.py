@@ -48,10 +48,6 @@ def oligomer_to_reactant(oligomer, r_group_number=None):
         return rdreactant
     r_group_index = oligomer.r_group_indices[r_group_number]
     rdreactant.GetAtomWithIdx(r_group_index).SetIsotope(r_group_number)
-    # for num, index in oligomer.r_group_indices.items():
-    #     atom = rdreactant.GetAtomWithIdx(index)
-    #     atom.SetIsotope(num)
-    #     atom.SetAtomMapNum(num)
     return rdreactant, r_group_index
 
 def oligomer_to_substituent(oligomer, r_group_number=None):
@@ -63,10 +59,6 @@ def oligomer_to_substituent(oligomer, r_group_number=None):
     r_group_index = oligomer.r_group_indices[r_group_number]
     sub_atom = rdsub.GetAtomWithIdx(int(r_group_index))
     sub_atom.SetAtomMapNum(SUBSTITUENT_ATOMNUM)
-    # for num, index in oligomer.r_group_indices.items():
-    #     atom = rdsub.GetAtomWithIdx(index)
-    #     atom.SetIsotope(num)
-    
     return rdsub, r_group_index
 
 def attach_substituent_and_label(
@@ -81,20 +73,13 @@ def attach_substituent_and_label(
 
     reaction = f"[*:{SUBSTITUENT_ATOMNUM}]-[{reactant_r_group}*]>>"
     reaction += utils.mol_to_smiles(rdsub)
-    # print(reaction)
     
     rxn = rdChemReactions.ReactionFromSmarts(reaction)
     products = rxn.RunReactants((rdreactant,))
     assert len(products) == 1 and len(products[0]) == 1
     product = products[0][0]
     Chem.SanitizeMol(product)
-    # print(utils.mol_to_smiles(product))
-    # print("----")
-
-    # match reactant and sub to product
-    # remove_reactant = 0
     reactant_indices = [i for i in range(rdreactant.GetNumAtoms()) if i != remove_reactant]
-    # remove_sub = 0
     sub_indices = [i for i in range(rdsub.GetNumAtoms()) if i != remove_sub]
 
     
@@ -105,7 +90,6 @@ def attach_substituent_and_label(
     Chem.SanitizeMol(rdsub)
     Chem.SanitizeMol(rdreactant)
 
-
     rc_matches = match_with_atom_map_wildcard(rdreactant, product)
     sub_matches = match_with_atom_map_wildcard(rdsub, product)
     assert rc_matches and sub_matches
@@ -113,7 +97,7 @@ def attach_substituent_and_label(
     # central_atom_map = {}
     atom_oligomer_map = {}
     r_groups = {}
-
+    monomer_bonds = set()
     central_atom_indices = []
 
     for rc, sb in itertools.product(rc_matches, sub_matches):
@@ -126,17 +110,25 @@ def attach_substituent_and_label(
             groups = [(rc, reactant, reactant_indices),
                       (sb, substituent, sub_indices)]
             for match, oligomer, indices in groups:
-                reverse_r = dict((v, k) for k, v in oligomer.r_group_indices.items())
+                properties = [(atom_oligomer_map, oligomer.atom_oligomer_map),
+                              (r_groups, oligomer.reverse_r_group_indices)]
+                origin_to_product = {}
                 for match_index, product_index in enumerate(match):
                     index = indices[match_index]
-                    try:
-                        atom_oligomer_map[product_index] = oligomer.atom_oligomer_map[index]
-                    except KeyError:
-                        pass
-                    try:
-                        r_groups[product_index] = oligomer.reverse_r_group_indices[index]
-                    except KeyError:
-                        pass                    
+                    origin_to_product[index] = product_index
+                    for destination, origin in properties:
+                        try:
+                            destination[product_index] = origin[index]
+                        except KeyError:
+                            pass
+                for atom1, atom2 in oligomer.monomer_bonds:
+                    new_atom1 = origin_to_product[atom1]
+                    new_atom2 = origin_to_product[atom2]
+                    bond = (new_atom1, new_atom2)
+                    monomer_bonds.add((new_atom1, new_atom2))
+            for atom1, atom2 in itertools.product(rc, sb):
+                if product.GetBondBetweenAtoms(atom1, atom2):
+                    monomer_bonds.add((atom1, atom2))
             break
     else:
         raise ValueError("could not match reactant and substituent")
@@ -147,4 +139,5 @@ def attach_substituent_and_label(
 
     return type(reactant)(offmol,
                           central_atom_indices=central_atom_indices,
-                          atom_oligomer_map=atom_oligomer_map)
+                          atom_oligomer_map=atom_oligomer_map,
+                          monomer_bonds=monomer_bonds)

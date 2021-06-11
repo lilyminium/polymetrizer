@@ -8,6 +8,18 @@ from openff.toolkit.topology import Molecule as OFFMolecule
 def mol_from_smiles(smiles: str) -> OFFMolecule:
     return OFFMolecule.from_smiles(smiles, allow_undefined_stereo=True)
 
+def atoms_are_bonded(atom1, atom2):
+    for bond in atom1.bonds:
+        other = get_other_bond_atom(bond, atom1)
+        if other is atom2:
+            return True
+    return False
+
+def get_other_bond_atom(bond, atom):
+    if bond.atom1 is atom:
+        return bond.atom2
+    return bond.atom1
+
 def get_other_bond_index(bond, index):
     if bond.atom1_index == index:
         return bond.atom2_index

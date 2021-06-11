@@ -1,6 +1,7 @@
 from typing import Set, List, Dict, Any
 from collections import defaultdict
 import re
+import itertools
 
 import numpy as np
 
@@ -41,3 +42,22 @@ def average_dicts(dicts: List[Dict[str, Any]] = []):
                 collector[k].append(v)
     n_items = len(dicts)
     return {k: np.sum(v, axis=0)/n_items for k, v in collector.items()}
+
+
+def isiterable(obj):
+    """
+    Returns ``True`` if ``obj`` is iterable and not a string
+
+    Adapted from MDAnalysis.lib.util.iterable
+    """
+    if isinstance(obj, str):
+        return False
+    if hasattr(obj, "next"):
+        return True
+    if isinstance(obj, itertools.repeat):
+        return True
+    try:
+        len(obj)
+    except (TypeError, AttributeError):
+        return False
+    return True

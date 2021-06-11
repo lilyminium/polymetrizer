@@ -7,8 +7,8 @@ from openff.toolkit.topology import Molecule as OFFMolecule
 from openff.toolkit.typing.engines.smirnoff.forcefield import ForceField
 
 from .oligomer import Oligomer, Monomer, create_hydrogen_caps
-from .smirker import Smirker
-from . import utils, offutils, chputils
+from .smirker import Smirker, AtomGroupParameter
+from . import utils, offutils
 
 try:
     from .oefuncs import fragment_into_dummy_smiles
@@ -124,7 +124,7 @@ class Polymetrizer:
             monomers: List[Monomer] = [],
             r_linkages: Dict[int, Set[int]] = {},
         ):
-        self.monomers = monomers
+        self.monomers = [Monomer(m) for m in monomers]
 
         # if no r_linkages, just set self-to-self
         if not r_linkages:
@@ -142,7 +142,7 @@ class Polymetrizer:
 
         self.caps_for_r_groups = defaultdict(list)
         for monomer in self.monomers:
-            for num in monomer.r_group_numbers:
+            for num in monomer.r_group_indices:
                 for partner in self.r_linkages[num]:
                     self.caps_for_r_groups[partner].append((num, monomer))
         
@@ -181,19 +181,21 @@ class Polymetrizer:
             forcefield: ForceField,
             n_overlapping_atoms: int = 3,
         ):
-        all_handler_kwargs = defaultdict(lambda: defaultdict(list))
+        all_handler_kwargs = defaultdict(list)
+
         for oligomer in self.oligomers:
             central = oligomer.get_central_forcefield_parameters(forcefield, n_overlapping_atoms)
-            for handler_name, handler_kwargs in central.items():
-                for atoms, akwargs in handler_kwargs.items():
-                    all_handler_kwargs[handler_name][atoms].append(akwargs)
+            for handler_name, parameters in central.items():
+                for param in parameters.values():
+                    all_handler_kwargs[handler_name].append(param)
         
-        averaged_handler_kwargs = defaultdict(dict)
-        for handler_name, handler_kwargs in all_handler_kwargs.items():
-            for atoms, akwargs in handler_kwargs.items():
-                mean_kwargs = utils.average_dicts(akwargs)
-                averaged_handler_kwargs[handler_name][atoms] = mean_kwargs
-        return averaged_handler_kwargs
+        # grouped_handler_kwargs = defaultdict(dict)
+
+        # for handler_name, atomkwargs in all_handler_kwargs.items():
+        #     for atoms, parameters in atomkwargs.items():
+        #         grouped_handler_kwargs[handler_name][atoms] = AtomGroupParameter(parameters)
+
+        return all_handler_kwargs
 
     
     def get_relevant_oligomers(self, qualified_atoms, handler_name: str=None):
@@ -207,7 +209,6 @@ class Polymetrizer:
             if oligomer.contains_qualified_atoms(qualified_atoms, handler_name):
                 oligomers.append(oligomer)
         return oligomers
-
 
 
     def get_parameter_oligomers(
@@ -227,119 +228,31 @@ class Polymetrizer:
     def build_residue_forcefield(
             self,
             forcefield,
-            averaged_handler_kwargs: Dict[str, dict]
+            all_handler_kwargs: Dict[str, dict],
+            compressed=True
         ) -> ForceField:
 
-        for handler_name, handler_kwargs in averaged_handler_kwargs.items():
+        for handler_name, handler_kwargs in all_handler_kwargs.items():
             handler = forcefield.get_parameter_handler(handler_name)
             if handler._INFOTYPE is None:
                 warnings.warn(f"{handler_name} has no INFOTYPE so I don't know how to add params")
                 continue
-            # atom_oligomers = self.get_parameter_oligomers(handler_kwargs, handler_name)
-            # unique_oligomers = set(x for y in atom_oligomers.values() for x in y)
-            # unique_oligomers = list(unique_oligomers)
-
-            # if handler_name in ("LibraryCharges",):
-            #     for param in chputils.get_librarycharges_parameters(unique_oligomers, handler_kwargs):
-            #     # for oligomer in unique_oligomers:
-            #         # param = chputils.get_librarycharges_param(oligomer, handler_kwargs)
-            #         handler.add_parameter(param)
-            #     continue
-            # print(handler_name)
-            # print(len(handler_kwargs))
-            # print(handler_kwargs)
-
-            # for olig in self.oligomers:
-            #     for i, qual in olig.atom_oligomer_map.items():
-            #         j, atom_index = qual
-            #         monomer = self.monomers[j]
-            #         index = monomer.reverse_atom_oligomer_map[qual]
-            #         print(f"M: {monomer.offmol.atoms[index].atomic_number}, O: {olig.offmol.atoms[i].atomic_number}")
-            # # raise ValueError()
-
-
-            smirker = Smirker(self.oligomers, handler_kwargs)
-            smirker.get_hierarchical_matches()
-            for parameter in smirker.sorted_parameters[::-1]:
-                symbols = []
-                for qual in parameter.qualified_atoms:
-                    symb = []
-                    for i, atom in qual:
-                        index = self.monomers[i].reverse_atom_oligomer_map[(i, atom)]
-                        symb.append(self.monomers[i].offmol.atoms[index].element.symbol)
-                    symbols.append(symb)
-                # print(symbols)
-                # print(parameter.smirks)
-                for smirks in parameter.smirks:
-                    param = dict(**parameter.param)
-                    param["smirks"] = smirks
-                    # print(smirks)
-                    try:
-                        handler.add_parameter(param)
-                    except:
-                        pass
-
-
-            # atom_smirks = chputils.get_parameter_smirks(atom_oligomers, unique_oligomers)
-            # smirks_params = defaultdict(list)
-            # for atoms, smirks in atom_smirks.items():
-            #     smirks_params[smirks].append(handler_kwargs[atoms])
             
-            # param_list = []
-            # for smirks, params in smirks_params.items():
-            #     param = dict(smirks=smirks, **utils.average_dicts(params))
-            #     param_list.append(param)
-            # for param in param_list:
-            #     handler.add_parameter(param)
-            # # for atoms, smirks in atom_smirks.items():
-            # #     param = dict(smirks=smirks, **handler_kwargs[atoms])
-            # #     handler.add_parameter(param)
+            # TODO: hierarchical smarts
+            smirker = Smirker(handler_kwargs)
+            unified_smirks = smirker.get_unified_smirks_parameters(context="residue", compressed=compressed)
+            for smirks, group_parameter in unified_smirks.items():
+                param = dict(smirks=smirks, **group_parameter.mean_parameter)
+                handler.add_parameter(param)
 
-
-
-        # for handler_name, handler_kwargs in averaged_handler_kwargs.items():
-        #     handler = forcefield.get_parameter_handler(handler_name)
-        #     if handler._INFOTYPE is None:
-        #         warnings.warn(f"{handler_name} has no INFOTYPE so I don't know how to add parameters")
-        #         continue
-        #     parameters = {}
-        #     for atoms, mean_kwargs in handler_kwargs.items():
-        #         for smirk in self.get_residue_smirks(atoms, handler_name):
-        #             param = dict(smirks=smirk, **mean_kwargs)
-        #             parameters[smirk] = param
-        #     # sort by length of smirks as cheap hack for specificity
-        #     # TODO: I thiiiiink it's most specific should be first?
-        #     smirks = sorted(parameters, key=len, reverse=True)
-        #     for smirk in smirks:
-        #         handler.add_parameter(parameters[smirk])
         return forcefield
     
 
-    # def get_residue_smirks(
-    #         self,
-    #         qualified_atom_indices: List[Tuple[int, int]],
-    #         handler_name: Optional[str] = None,
-    #     ) -> List[str]:
-    #     """Get residue smirks from each applicable Oligomer"""
-    #     monomers, atoms = zip(*qualified_atom_indices)
-    #     first = self.monomers[monomers[0]]
-    #     monomers = set(monomers)
-    #     if len(monomers) == 1:
-    #         return [first.get_residue_smirks(qualified_atom_indices)]
-
-    #     smirks = set()
-    #     for mindex in monomers:
-    #         oligomers = self.monomer_oligomers[mindex]
-    #         for oligomer in oligomers:
-    #             smirk = oligomer.get_residue_smirks(qualified_atoms, handler_name)
-    #             if smirk is not None:
-    #                 smirks.add(smirk)
-    #     return sorted(smirks)
-    
     def build_combination_forcefield(
             self,
             forcefield,
-            averaged_handler_kwargs: Dict[str, dict]
+            averaged_handler_kwargs: Dict[str, dict],
+            compressed=True,
         ) -> ForceField:
         combinations = []
         for monomer in self.monomers:
@@ -351,123 +264,27 @@ class Polymetrizer:
             if handler._INFOTYPE is None:
                 warnings.warn(f"{handler_name} has no INFOTYPE so I don't know how to add params")
                 continue
-            if handler_name in ("LibraryCharges",):
-                smirker = Smirker(combinations, handler_kwargs, combine=True)
-                for parameter in smirker.sorted_parameters:
-                    for smirks in parameter.smirks:
-                        param = dict(**parameter.param)
-                        param["smirks"] = smirks
-                        try:
-                            handler.add_parameter(param)
-                        except:
-                            pass
-                continue
 
-            smirker = Smirker(combinations, handler_kwargs)
-            smirker.get_hierarchical_matches()
-            for parameter in smirker.sorted_parameters:
-                symbols = []
-                for qual in parameter.qualified_atoms:
-                    symb = []
-                    for i, atom in qual:
-                        index = self.monomers[i].reverse_atom_oligomer_map[(i, atom)]
-                        symb.append(self.monomers[i].offmol.atoms[index].element.symbol)
-                    symbols.append(symb)
-                # print(symbols)
-                # print(parameter.smirks)
-                for smirks in parameter.smirks:
-                    param = dict(**parameter.param)
-                    param["smirks"] = smirks
+            smirker = Smirker(handler_kwargs)
+
+            if handler_name in ("LibraryCharges",):
+                for oligomer in combinations:
+                    param = smirker.get_combined_smirks_parameter(oligomer, compressed=compressed)
                     try:
                         handler.add_parameter(param)
-                    except:
+                    except:  # TODO: figure out the error
                         pass
+                continue
 
-            # if handler_name in ("LibraryCharges",):
-            #     # do entire molecule at once
-            #     for oligomer in combinations:
-            #         param = chputils.get_librarycharges_param(oligomer, handler_kwargs)
-            #         handler.add_parameter(param)
-            #     # seen_smirks = set()
-            #     # for oligomer in combinations:
-            #     #     fields = defaultdict(list)
-            #     #     atoms = []
-            #     #     all_qualified = set(oligomer.atom_oligomer_map.values())
-            #     #     for (qualified,), chg in handler_kwargs.items():
-            #     #         if qualified in all_qualified:
-            #     #             for k, v in chg.items():
-            #     #                 try:
-            #     #                     v = v[0]
-            #     #                 except TypeError:
-            #     #                     pass
-            #     #                 fields[k].append(v)
-            #     #             atoms.append(qualified)
-            #     #     smirks = oligomer.get_residue_smirks(atoms, handler_name,
-            #     #                                          oligomer.indices)
-            #     #     if smirks is not None and smirks not in seen_smirks:
-            #     #         param = dict(**fields)
-            #     #         param["smirks"] = smirks
-            #     #         handler.add_parameter(param)
-            #     #         seen_smirks.add(smirks)
-                
-            #     continue
-            for atoms, mean_kwargs in handler_kwargs.items():
-                smirks = set()
-                for oligomer in combinations:
-                    smirk = oligomer.get_residue_smirks(atoms, handler_name,
-                                                        oligomer.indices)
-                    if smirk is not None:
-                        smirks.add(smirk)
-                for smirk in smirks:
-                    param = dict(smirks=smirk, **mean_kwargs)
+            unified_smirks = smirker.get_smirks_for_oligomer(oligomer, compressed=compressed)
+            for smirks, group_parameter in unified_smirks.items():
+                param = dict(smirks=smirks, **group_parameter.mean_parameter)
+                try:
                     handler.add_parameter(param)
+                except:  # TODO: figure out error
+                    pass
         return forcefield
 
-        #     relevant_oligomers = []
-        # if oligomer.contains_qualified_atoms(qualified_atoms, handler_name):
-        #         oligomers.append(oligomer)
-
-        # for handler_name, handler_kwargs in averaged_handler_kwargs.items():
-        #     handler = forcefield.get_parameter_handler(handler_name)
-        #     if handler._INFOTYPE is None:
-        #         warnings.warn(f"{handler_name} has no INFOTYPE so I don't know how to add params")
-        #         continue
-        #     if handler_name in ("LibraryCharges",):
-        #         seen_smirks = set()
-        #         for oligomer in combinations:
-        #             fields = defaultdict(list)
-        #             atoms = []
-        #             all_qualified = set(oligomer.atom_oligomer_map.values())
-        #             for (qualified,), chg in handler_kwargs.items():
-        #                 if qualified in all_qualified:
-        #                     for k, v in chg.items():
-        #                         try:
-        #                             v = v[0]
-        #                         except TypeError:
-        #                             pass
-        #                         fields[k].append(v)
-        #                     atoms.append(qualified)
-        #             smirks = oligomer.get_residue_smirks(atoms, handler_name,
-        #                                                  oligomer.indices)
-        #             if smirks is not None and smirks not in seen_smirks:
-        #                 param = dict(**fields)
-        #                 param["smirks"] = smirks
-        #                 handler.add_parameter(param)
-        #                 seen_smirks.add(smirks)
-                
-        #         continue
-        #     for atoms, mean_kwargs in handler_kwargs.items():
-        #         smirks = set()
-        #         for oligomer in combinations:
-        #             smirk = oligomer.get_residue_smirks(atoms, handler_name,
-        #                                                 oligomer.indices)
-        #             if smirk is not None:
-        #                 smirks.add(smirk)
-        #         for smirk in smirks:
-        #             param = dict(smirks=smirk, **mean_kwargs)
-        #             handler.add_parameter(param)
-        # return forcefield
-        
         
 
     def polymetrize(

@@ -1,5 +1,7 @@
+import itertools
 
 import pytest
+import numpy as np
 
 import polymetrizer as pet
 
@@ -54,3 +56,16 @@ def test_tuple_from_string(string, outtuple):
     assert pet.utils.tuple_from_string(string) == outtuple
 
 
+@pytest.mark.parametrize("obj, result", [
+    ("adsf", False),
+    (1, False),
+    ([], True),
+    ([1, 2], True),
+    ((1, 2), True),
+    ({1: 1, 2: 2}, True),
+    (np.arange(3), True),
+    ({}, True),
+    (itertools.repeat(1), True),
+])
+def test_isiterable(obj, result):
+    assert pet.utils.isiterable(obj) == result

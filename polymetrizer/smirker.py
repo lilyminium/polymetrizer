@@ -1,344 +1,235 @@
-from typing import List, Tuple
-from collections import defaultdict
 import re
+import itertools
+from collections import defaultdict
+
+from typing_extensions import Literal
 import numpy as np
 
-from openff.toolkit.topology import Molecule
 
-from rdkit import Chem
-from .tkfuncs import offmol_to_graph
-from .rdfuncs import mol_to_smarts
-from . import ommutils
-from openff.toolkit.utils.toolkits import *
+try:
+    from .oefuncs import get_mol_chemper_info, get_fragment_indices, create_labeled_smarts
+except ImportError:
+    from .rdfuncs import get_mol_chemper_info, get_fragment_indices, create_labeled_smarts
 
-RDKIT_TOP_REGISTRY = ToolkitRegistry(
-    toolkit_precedence=[
-        # RDKitToolkitWrapper,
-        OpenEyeToolkitWrapper,
-        RDKitToolkitWrapper,
-        AmberToolsToolkitWrapper,
-        BuiltInToolkitWrapper,
-    ],
-    exception_if_unavailable=False,
-)
 
-FULL_SMIRKS = "[#{atomic_number:d}{aromaticity}H{hydrogen_count:d}X{connectivity:d}x{ring_connectivity:d}{ring_size}{formal_charge:+d}{label}]"
-COMPRESSED_SMIRKS = "[#{atomic_number:d}{label}]"
-
-def create_atom_smirks(atom_info, compressed=False):
-    if compressed:
-        template = COMPRESSED_SMIRKS
-    else:
-        template = FULL_SMIRKS
-
-    aromaticity = "a" if atom_info["is_aromatic"] else "A"
-    ring_size = atom_info["min_ring_size"]
+def create_full_atom_smirks(info):
+    FULL_SMIRKS = "[#{atomic_number:d}{aromaticity}H{hydrogen_count:d}X{connectivity:d}x{ring_connectivity:d}{ring_size}{formal_charge:+d}{label}]"
+    aromaticity = "a" if info["is_aromatic"] else "A"
+    ring_size = info["min_ring_size"]
     ring = f"r{ring_size}" if ring_size else "!r"
 
     data = dict(aromaticity=aromaticity, ring_size=ring, **atom_info)
-    return template.format(**data)
-
-def create_bond_smirks(bond_info):
-    ring = "@" if bond_info["is_in_ring"] else "!@"
-    return bond_info["order_symbol"] + ring
+    return FULL_SMIRKS.format(**data)
 
 
-def _get_smirks_iteration(graph, previous, root, compressed, seen):
-        smirks = create_atom_smirks(graph.nodes[root], compressed)
-        seen.add(previous)
-        neighbors = [i for i in graph.neighbors(root) if i != previous]
-        # neighbors = sorted(neighbors)
-        neighbors = sorted([i for i in neighbors if i not in seen])
-        n_neighbors = len(neighbors)
-        for i, neighbor in enumerate(neighbors, 1):
-            bond = graph.get_edge_data(root, neighbor)
-            if not bond:
-                bond_smirks = "~"
-            else:
-                bond_smirks = create_bond_smirks(bond)
-            bond_smirks += _get_smirks_iteration(graph, root, neighbor, compressed, seen)
-            if i < n_neighbors:
-                bond_smirks = f"({bond_smirks})"
-            smirks += bond_smirks
-        return smirks
+def create_smirks(oligomer, atom_indices=[], label_indices=[], compressed=True):
+    atom_chemper_info = get_mol_chemper_info(oligomer)
+    smirks = create_labeled_smarts(oligomer.offmol, label_indices=label_indices, atom_indices=atom_indices)
 
-class ChemperGraph:
-    def __init__(self, oligomer):
-        self.oligomer = oligomer
-        self.reverse_atom_oligomer_map = oligomer.reverse_atom_oligomer_map
-        self.graph = offmol_to_graph(oligomer.offmol)
-        self.rdmol = self.oligomer.offmol.to_rdkit()
-
-    # def get_smirks(self, atom_indices=[], label_indices=[], compressed=False):
-    #     for i in range(self.oligomer.offmol.n_atoms):
-    #         self.graph.nodes[i]["label"] = ""
-    #     for i, index in enumerate(label_indices, 1):
-    #         self.graph.nodes[index]["label"] = f":{i}"
-
-    #     indices = sorted(set(atom_indices) | set(label_indices))
-    #     subgraph = self.graph.subgraph(indices)
-    #     first = indices[0]
-    #     seen = {first}
-    #     smirks = _get_smirks_iteration(subgraph, -1, first, compressed, seen)
-    #     return smirks
-
-    def get_smirks(self, atom_indices=[], label_indices=[], compressed=False):
-        for i in range(self.oligomer.offmol.n_atoms):
-            self.graph.nodes[i]["label"] = ""
-        for i, index in enumerate(label_indices, 1):
-            self.graph.nodes[index]["label"] = f":{i}"
-
-        rdmol = Chem.RWMol(self.rdmol)
-        indices = sorted(set(atom_indices) | set(label_indices))
-        additional_indices = []
-        for atom in rdmol.GetAtoms():
-            atom.SetAtomMapNum(atom.GetIdx() + 1)
-        Chem.SanitizeMol(rdmol)
-
-        to_del = list(i for i in range(self.oligomer.offmol.n_atoms) if i not in indices)
-        for i in to_del[::-1]:
-            rdmol.RemoveAtom(i)
-        rdmol.UpdatePropertyCache()
-        raw_smarts = mol_to_smarts(rdmol)
-        smirks = raw_smarts
+    # substitute
+    if not compressed:
+        raw_smarts = smirks
         PATTERN = "\[[0-9a-zA-Z#@]*:([0-9]+)]"
         for num in re.findall(PATTERN, raw_smarts):
-            info = self.graph.nodes[int(num) - 1]
-            atom_smirks = create_atom_smirks(info, compressed)
+            info = atom_chemper_info[label_indices[int(num) - 1]]
+            atom_smirks = create_full_atom_smirks(info)
             new_pattern = f"\[[0-9a-zA-Z#@]*:{num}]"
             smirks = re.sub(new_pattern, atom_smirks, smirks)
+    return smirks
+
+
+class SingleOligomerAtomGroupParameter:
+
+    def __init__(self, atom_indices, oligomer, parameter):
+        self.atom_indices = tuple(atom_indices)
+        self.monomer_atoms = tuple(oligomer.atom_oligomer_map[i] for i in atom_indices)
+        self.monomers = []
+        seen = []
+        for atom in self.monomer_atoms:
+            if atom in seen:
+                self.monomers.append(atom.monomer)
+            else:
+                seen.append(atom)
+                if atom.monomer not in self.monomers:
+                    self.monomers.append(atom.monomer)
+        self.oligomer = oligomer
+        self.parameter = parameter
+        # TODO: terribly inefficient -- make a FrozenOligomer or something
+
+    def __repr__(self):
+        clsname = type(self).__name__
+        return f"{clsname}(atom_indices={self.atom_indices}, oligomer={self.oligomer}, parameter={self.parameter})"
+
+    def __eq__(self, other):
+        return (self.atom_indices, self.oligomer, self.parameter) == (other.atom_indices, other.oligomer, other.parameter)
+
+    def create_smirks(self, context: Literal["all", "residue", "minimal"]="residue", compressed=True):
+        if context == "all":
+            indices = list(self.oligomer.atom_oligomer_map)
+        elif context == "minimal":
+            indices = list(self.atom_indices)
+        elif context == "residue":
+            if len(self.monomers) == 1:  # easy case
+                tmp = type(self)([a.index for a in self.monomer_atoms], self.monomers[0], self.parameter)
+                return tmp.create_smirks(context="all", compressed=compressed)
+            fragment_indices = get_fragment_indices(self.oligomer)
+            indices = []
+            for fragment in fragment_indices:
+                if any(i in fragment for i in self.atom_indices):
+                    indices.extend(fragment)
+        
+        return create_smirks(self.oligomer, atom_indices=indices, label_indices=self.atom_indices,
+                             compressed=compressed)
+        
+        smirks = create_labeled_smarts(self.oligomer.offmol, indices, self.atom_indices)
         return smirks
 
-    def get_qualified_indices(self, qualified_atoms):
-        return [self.reverse_atom_oligomer_map[i] for i in qualified_atoms]
-
-    def get_qualified_residue_indices(self, qualified_atoms):
-        atom_indices = []
-        monomers, _ = zip(*qualified_atoms)
-        for index, (monomer, atom) in self.oligomer.atom_oligomer_map.items():
-            if monomer in monomers:
-                atom_indices.append(index)
-        return atom_indices
-
-    def get_qualified_smirks(self, qualified_atoms, compressed=False, return_label_indices=False):
-        smirks = None
-        label_indices = None
-        if self.oligomer.contains_qualified_atoms(qualified_atoms):
-            label_indices = self.get_qualified_indices(qualified_atoms)
-            
-            if any(x in self.oligomer.central_atom_map for x in label_indices):
-                atom_indices = self.get_qualified_residue_indices(qualified_atoms)
-                smirks = self.get_smirks(atom_indices, label_indices, compressed=compressed)
-
-                match = self.oligomer.offmol.chemical_environment_matches(smirks, toolkit_registry=RDKIT_TOP_REGISTRY)
-                assert match
-                assert len(match[0]) == len(label_indices)
-
-        if return_label_indices:
-            return smirks, label_indices
-        return smirks
-
-    def get_combined_smirks_param(self, parameters, compressed=False):
-        # relies on 1-atom parameter!!
-        counter = 1
-        atoms = []
-        params = []
-        for qual, param in parameters.items():
-            if self.oligomer.contains_qualified_atoms(qual):
-                atoms.append(qual)
-                params.append(param)
-        flat_atoms = [x[0] for x in atoms]
-        # print("flat", flat_atoms)
-        # raise ValueError()
-        smirks = self._get_combined_smirks(flat_atoms, compressed)
-        new_param = {} # dict(smirks=smirks)
-        # print(params)
-        first = params[0]
-        for k in first.keys():
-            vals = [p[k] for p in params]
-            # print("vals", vals)
-            new_param[k] = np.concatenate(vals)
-            # new_param[k] = ommutils.operate_on_quantities(np.concatenate, vals)
-        param = Parameter(atoms, new_param)
-        param.smirks.add(smirks)
-        return param
-
-        # return new_param
-    
-    def _get_combined_smirks(self, all_atoms, compressed=False, return_label_indices=False):
-        label_indices = self.get_qualified_indices(all_atoms)
-        atom_indices = np.arange(self.oligomer.offmol.n_atoms)
-        smirks = self.get_smirks(atom_indices, label_indices, compressed=compressed)
-        match = self.oligomer.offmol.chemical_environment_matches(smirks)
-        assert (match and len(match[0]) == len(label_indices))
-        if return_label_indices:
-            return smirks, label_indices
-        return smirks
-            
-
-class Parameter:
-    def __init__(self, qualified_atoms, param, index=0):
-        self.param = param
-        self.qualified_atoms = set(qualified_atoms)
-        self.smirks = set()
-        self.matches = set()
-        self.expected_matches = set()
-        self.index = index
-
-    def has_equal_parameters(self, other):
-        a = self.param
-        b = other.param
-        if set(a.keys()) != set(b.keys()):
+    def is_compatible_with(self, other):
+        if self.parameter.keys() != other.parameter.keys():
             return False
-        for k in a.keys():
-            ak = a[k]
-            bk = b[k]
-            if not ommutils.operate_on_quantities(np.allclose, ak, bk, rtol=1e-04, atol=1e-05):
+        for k in self.parameter.keys():
+            ak = self.parameter[k]
+            bk = other.parameter[k]
+            if not np.allclose(ak, bk, rtol=1e-04, atol=1e-05):
                 return False
         return True
 
-    def get_smirks_and_expected_values(self, graphs, compressed=False):
-        self.smirks = set()
-        self.expected_matches = set()
-        for atoms in self.qualified_atoms:
-            for i, graph in enumerate(graphs):
-                smirks, expected = graph.get_qualified_smirks(atoms, compressed=compressed, return_label_indices=True)
-                if smirks is not None:
-                    self.smirks.add(smirks)
-                    self.expected_matches.add((i, tuple(expected)))
-        symbols = []
-        for qual in self.qualified_atoms:
-            symb = []
-            for i, atom in qual:
-                symb.append(graphs[i].oligomer.offmol.atoms[atom].atomic_number)
-            symbols.append(symb)
-
-    def get_smirks_matches(self, smirks):
-        unique_matches = set()
-        for oligomer in self.oligomers:
-            matches = oligomer.offmol.chemical_environment_matches(smirks, toolkit_registry=RDKIT_TOP_REGISTRY)
-            if not matches:
-                continue
-            for match in matches:
-                qualified = oligomer.get_qualified_atoms(match)
-                if qualified is not None:
-                    unique_matches.add(qualified)
-        return unique_matches
-    
-    def get_hierarchical_matches(self, oligomers, seen):
-        self.matches = set()
-        for smirks in self.smirks:
-            # print(smirks)
-            for i, oligomer in enumerate(oligomers):
-                matches = oligomer.offmol.chemical_environment_matches(smirks, toolkit_registry=RDKIT_TOP_REGISTRY)
-                if not matches:
-                    continue
-                for match in matches:
-                    if all(x in oligomer.atom_oligomer_map for x in match):
-                        item = (i, match)
-                        if item not in seen:
-                            self.matches.add(item)
-                            seen.add(item)
+    def copy_with_parameter(self, parameter):
+        new = type(self)(self.atom_indices, self.oligomer, parameter)
+        return new
+        
 
 
-    def __iadd__(self, other):
-        self.qualified_atoms |= other.qualified_atoms
-        self.smirks |= other.smirks
-        self.expected_matches |= other.expected_matches
-        return self
+
+class AtomGroupParameter:
+
+    def __init__(self, single_atomgroup_parameters=[]):
+        self.single_atomgroup_parameters = list(single_atomgroup_parameters)
+
+    @property
+    def monomer_atoms(self):
+        return set(p.monomer_atoms for p in self.single_atomgroup_parameters)
+
+    @property
+    def parameters(self):
+        return [p.parameter in self.single_atomgroup_parameters]
+
+    @property
+    def mean_parameter(self):
+        return utils.average_dicts(self.parameters)
+
+    # def get_smirks(self, context: Literal["all", "residue", "minimal"]="residue", compressed=True):
+    #     return set(p.get_smirks(context=context, compressed=compressed) for p in self.single_atomgroup_parameters)
+
+        
+    # def has_compatible_parameters(self, other):
+    #     for a, b in itertools.product(self.parameters, other.parameters):
+    #         if set(a.keys()) != set(b.keys()):
+    #             return False
+    #         for k in a.keys():
+    #             ak = a[k]
+    #             bk = b[k]
+    #             allclose = np.allclose(ak, bk, rtol=1e-04, atol=1e-05)
+    #             if not allclose:
+    #                 break
+    #         else:
+    #             return True
+    #     return False
+
+
+# class SmirksParameter:
+
+#     def __init__(self, atomgroup_parameters):
+
+def are_parameters_compatible(parameters):
+    parameters = list(parameters)
+    compatible = [parameters.pop(0)]
+    while parameters:
+        current = parameters.pop(0)
+        if any(current.is_compatible_with(other) for other in compatible):
+            compatible.append(current)
+        else:
+            return False
+    return True
+
 
 class Smirker:
 
-    def __init__(self, oligomers, averaged_parameters, combine=False, compressed=True):
-        self.oligomers = oligomers
-        self.graphs = [ChemperGraph(x) for x in oligomers]
-        self.averaged_parameters = {k: dict(**v) for k, v in averaged_parameters.items()}
-        self.atoms_to_parameter = {}
-        sorted_keys = sorted(averaged_parameters.keys())
+    def __init__(self, parameters_by_monomer_atoms={}, handler_name=None):
+        self.handler_name = handler_name
+        # average all parameters that span the same monomer atoms
+        self.single_atomgroup_parameters = []
+        self.parameters_by_monomer_atoms = {}
+        for monomer_atoms, single_parameters in parameters_by_monomer_atoms.items():
+            grouped = AtomGroupParameter(single_parameters)
+            self.parameters_by_monomer_atoms[monomer_atoms] = grouped
+            avg = grouped.avg
+            for single in single_parameters:
+                single.parameter = avg
+                self.single_atomgroup_parameters.append(single.copy_with_parameter(avg))
 
-        if not combine:
-            for i, qualified_atoms in enumerate(sorted_keys):
-                param = averaged_parameters[qualified_atoms]
-                self.atoms_to_parameter[qualified_atoms] = Parameter([qualified_atoms], param, index=i)
-            for param in self.atoms_to_parameter.values():
-                param.get_smirks_and_expected_values(self.graphs, compressed=compressed)
-                if not param.smirks:
-                    print(param.qualified_atoms)
-                    raise ValueError()
-        else:
-            for graph in self.graphs:
-                param = graph.get_combined_smirks_param(averaged_parameters, compressed=compressed)
-                for qual in param.qualified_atoms:
-                    self.atoms_to_parameter[qual] = param
-        
-        SMIRKS_ATOMS = defaultdict(list)
-        for atoms, param in self.atoms_to_parameter.items():
-            for smirks in param.smirks:
-                SMIRKS_ATOMS[smirks].append(param)
-        for params in SMIRKS_ATOMS.values():
-            self.merge_parameters(*params)
+        self._is_singular_atom_term = all(len(p.atom_indices) == 1 for p in self.single_atomgroup_params)
+    
+    def get_unified_smirks_parameters(self, context: Literal["all", "residue", "minimal"]="residue", compressed=True):
+        smirks_to_param = defaultdict(list)
 
-    @property
-    def sorted_parameters(self):
-        unique = set(self.atoms_to_parameter.values())
-        return sorted(unique, key=lambda x: x.index)
-    
-    def merge_parameters(self, param, *params):
-        for other in params:
-            param += other
-        for atoms in param.qualified_atoms:
-            self.atoms_to_parameter[atoms] = param
-    
-    def _get_hierarchical_matches(self, oligomers):
-        seen = set()
-        parameters = self.sorted_parameters
-        max_index = parameters[-1].index + 1
-        for i, param in enumerate(parameters):
-            # print("\n", i)
-            param.get_hierarchical_matches(oligomers, seen)
+        # identify parameters with identical smirks
+        for parameter in self.single_atomgroup_parameters:
+            for smirks in parameter.get_smirks(context=context, compressed=compressed):
+                for smirk in smirks:
+                    smirks_to_param[smirk].append(parameter)
         
-        # print([x.index for x in parameters])
-        n_extra_or_missing = 0
+        # merge if compatible
+        return self._unify_smirks(smirks_to_param)
+
+    @staticmethod
+    def _unify_smirks(smirks_to_param):
+        unified_smirks = {}
+        for smirks, params in smirks_to_param.items():
+            err = "I don't know how to deal with identical smirks for different parameters yet"
+            assert are_parameters_compatible(params), err
+            unified_smirks[smirks] = AtomGroupParameter(params)
+        return unified_smirks
+
+    def get_smirks_for_oligomer(self, oligomer, compressed=True):
+        smirks_to_param = defaultdict(list)
+
+        for monomer_atoms, group_parameter in self.parameters_by_monomer_atoms.items():
+            avg = group_parameter.mean_parameter
+            _, all_label_indices = oligomer.contains_monomer_atoms(monomer_atoms, handler_name=self.handler_name,
+                                                                   return_indices=True)
+            for label_indices in all_label_indices:
+                tmp_parameter = SingleOligomerAtomGroupParameter(label_indices, oligomer, avg)
+                smirks = tmp_parameter.get_smirks(context="all", compressed=compressed)
+                smirks_to_param[smirks].append(tmp_parameter)
         
-        resolved = True
-        for i, param in enumerate(parameters):
-            if param.matches != param.expected_matches:
-                extra = param.matches - param.expected_matches
-                
-                qualified = [oligomers[x[0]].get_qualified_atoms(x[1]) for x in extra]
-                qualified = [x for x in qualified if x is not None and x not in param.qualified_atoms]
-                if qualified:
-                    n_extra_or_missing += 1
-                    resolved = False
-                for qual in qualified:
-                    other_param = self.atoms_to_parameter[qual]
-                    if param.has_equal_parameters(other_param):
-                        self.merge_parameters(param, other_param)
-                    elif other_param.smirks.intersection(param.smirks):
-                        copied = dict(**param.param)
-                        param.param = {k: np.mean([copied[k], other_param.param[k]], axis=0) for k in copied.keys()}
-                        self.merge_parameters(param, other_param)
-                    else:
-                        param.index = max_index + i
-        for i, param in enumerate(parameters):
-            if param.matches != param.expected_matches:
-                missing = param.expected_matches - param.matches
-                if missing:
-                    qualified = [oligomers[x[0]].get_qualified_atoms(x[1]) for x in missing]
-                    qualified = [x for x in qualified if x is not None and x not in param.qualified_atoms]
-                    if qualified:
-                        n_extra_or_missing += 1
-                        resolved = False
-                        new_index = max(self.atoms_to_parameter[x].index for x in qualified)
-                        param.index = new_index + 1
-                #     param.index = other_param.index
-                # param.index += i
-        # print(f"  num extra or missing: {n_extra_or_missing}")
-        return resolved
-    
-    def get_hierarchical_matches(self, maxiter=6):
-        resolved = False
-        while not resolved and maxiter:
-            resolved = self._get_hierarchical_matches(self.oligomers)
-            maxiter -= 1
+        return self._unify_smirks(smirks_to_param)
+
+
+
+    def get_combined_smirks_parameter(self, oligomer, compressed=True):
+        if not self._is_singular_atom_term:
+            raise NotImplementedError("Combined SMIRKS is only supported for 1-atom terms")
+
+
+        label_indices = []
+        parameters = defaultdict(list)
+        for i, wrapper in oligomer.atom_oligomer_map.items():
+            label_indices.append(i)
+            param = self.parameters_by_monomer_atoms[(wrapper,)]
+            for k, v in param.mean_parameter.items():
+                parameters[k].append(v)
+
+        n_indices = len(label_indices)
+        all_indices = np.arange(oligomer.offmol.n_atoms)
+        smirks = create_smirks(oligomer, atom_indices=all_indices, label_indices=label_indices, compressed=compressed)
+        
+        flat = {}
+        for k, v in parameters.items():
+            flat[k] = np.reshape(np.array(v).reshape((-1,)))
+            if not len(flat[k]) == n_indices:
+                raise ValueError("length mismatch between parameters and indices: "
+                                 f"len(indices) == {n_indices}, len({k}) == {len(flat[k])}")
+        flat["smirks"] = smirks
+        return flat
 

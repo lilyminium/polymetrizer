@@ -26,9 +26,9 @@ class TestMonomer:
     @pytest.mark.parametrize(
         "smiles, r_group_indices, central_indices",
         [
-            ("([1*:1])[H]", {1: 0}, [1]),
-            ("([R1])[H]", {1: 0}, [1]),
-            ("([*:3])[H]", {3: 0}, [1]),
+            ("[1*:1][H]", {1: 0}, [1]),
+            ("[R1][H]", {1: 0}, [1]),
+            ("[*:3][H]", {3: 0}, [1]),
             ("[R3][H]", {3: 0}, [1]),
             ("C([1*:1])([*:2])=N([*:3])", {1: 1, 2: 2, 3: 4}, [0, 3]),
             ("C([R1])([R2])=N([R3])", {1: 1, 2: 2, 3: 4}, [0, 3]),
@@ -58,8 +58,8 @@ PEGMA_PEGMA_CENTRAL_INDICES = [44, 45, 46, 47, 49] + list(range(50, 88))
 class TestOligomer:
 
     @pytest.mark.parametrize("smiles, r_group_indices", [
-        ("([1*:1])[H]", {1: 0}),
-        ("([*:3])[H]", {3: 0}),
+        ("[1*:1][H]", {1: 0}),
+        ("[*:3][H]", {3: 0}),
         ("C([1*:1])([*:2])=N([*:3])", {1: 1, 2: 2, 3: 4})
     ])
     def test_create_oligomer_without_maps(self, smiles, r_group_indices):
@@ -232,14 +232,19 @@ class TestOligomer:
         #     "bonds": {(atoms[1], atoms[2]): pet.smirker.SingleParameter((1, 2), pegma, 3),
         #               (atoms[2], atoms[4]): pet.smirker.SingleParameter((2, 4), pegma, 8)},
         # }
-        expected = {
-            "bonds": [
-                        pet.smirker.SingleParameter((1, 2), pegma, 3),
-                        pet.smirker.SingleParameter((2, 4), pegma, 8),
-                    ]
-        }
+        # expected = {
+        #     "bonds": [
+        #                 pet.smirker.SingleParameter((1, 2), pegma, 3),
+        #                 pet.smirker.SingleParameter((2, 4), pegma, 8),
+        #             ]
+        # }
 
-        assert selected == expected
+        expected = [
+            [pet.smirker.SingleParameter((1, 2), pegma, 3)],
+            [pet.smirker.SingleParameter((2, 4), pegma, 8)],
+        ]
+
+        assert list(selected["bonds"].values()) == expected
 
     @pytest.fixture
     def truncated_monomer(self):

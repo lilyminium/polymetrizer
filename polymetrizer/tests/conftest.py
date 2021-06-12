@@ -3,7 +3,7 @@ import pytest
 from openff.toolkit.typing.engines.smirnoff import ForceField
 from openff.toolkit.topology import Molecule
 
-from .data import PEGMA_R_SMILES,  BMA_R_SMILES
+from .data import PEGMA_R_SMILES,  BMA_R_SMILES, FULL_MOL_SMILES
 
 import polymetrizer as pet
 
@@ -14,7 +14,11 @@ def forcefield():
 
 @pytest.fixture(scope="session")
 def butenamine():
-    return Molecule.from_smiles("C/C=C/(N)C")
+    return Molecule.from_smiles("C/C=C(/N)C")
+
+# @pytest.fixture(scope="session")
+# def butenamine():
+#     return Molecule.from_smiles("[H]/[C](=[C](\\[N]([H])[H])[C]([H])([H])[H])[C]([H])([H])[H]")
 
 
 @pytest.fixture
@@ -46,3 +50,8 @@ def pegma_pegma(pegma):
 @pytest.fixture
 def bma_bma(bma):
     return bma.attach_substituents({1: (2, bma)})
+
+
+@pytest.fixture
+def full_offmol():
+    return Molecule.from_smiles(FULL_MOL_SMILES)

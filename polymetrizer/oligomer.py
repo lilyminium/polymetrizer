@@ -1,24 +1,22 @@
-import warnings
-from typing import Union, Dict, List, Iterable, Tuple, Optional, Set
+from typing import Union, Dict, List, Tuple, Set
 import itertools
 import functools
 from collections import defaultdict
 
-import numpy as np
 from openff.toolkit.topology import Molecule as OFFMolecule
 
 from . import utils, offutils, ommutils
 from .smirker import SingleParameter
 
 try:
-    from .oefuncs import attach_substituent_and_label, get_sub_smarts, subset_mol
+    from .oefuncs import attach_substituent_and_label, subset_offmol
 except ImportError:
-    from .rdfuncs import attach_substituent_and_label, get_sub_smarts, subset_mol
+    from .rdfuncs import attach_substituent_and_label, subset_offmol
 
 
 @functools.total_ordering
 class AtomWrapper:
-    def __init__(self, monomer, index):
+    def __init__(self, monomer: "Monomer", index: int):
         self.monomer = monomer
         self.index = index
 
@@ -46,19 +44,19 @@ class Oligomer:
     """
 
     @classmethod
-    def with_oligomer_index(cls, *args, index: int=0, **kwargs):
+    def with_oligomer_index(cls, *args, index: int = 0, **kwargs):
         new = cls(*args, **kwargs)
         indices = [i for i in new.indices if new.offmol.atoms[i].atomic_number != 0]
         new.atom_oligomer_map = {i: (index, j) for j, i in enumerate(indices)}
         return new
 
     def __init__(
-            self,
-            offmol: OFFMolecule,
-            central_atom_indices: List[int] = [],
-            atom_oligomer_map: Dict[int, AtomWrapper] = {},
-            monomer_bonds: Set[Tuple[int, int]] = set(),
-        ):
+        self,
+        offmol: OFFMolecule,
+        central_atom_indices: List[int] = [],
+        atom_oligomer_map: Dict[int, AtomWrapper] = {},
+        monomer_bonds: Set[Tuple[int, int]] = set(),
+    ):
 
         if isinstance(offmol, Oligomer):
             central_atom_indices = offmol.central_atom_indices
@@ -97,10 +95,10 @@ class Oligomer:
 
     def __hash__(self):
         return hash(self._get_immutable_attrs())
-    
+
     def __eq__(self, other):
         return self._get_immutable_attrs() == other._get_immutable_attrs()
-    
+
     def __lt__(self, other):
         self_values = (self.offmol.n_atoms, len(self.central_atom_indices), self.offmol.to_smiles())
         other_values = (other.offmol.n_atoms, len(other.central_atom_indices), other.offmol.to_smiles())
@@ -114,27 +112,25 @@ class Oligomer:
     def reverse_r_group_indices(self):
         return dict((v, k) for k, v in self.r_group_indices.items())
 
-
     def get_applicable_caps(
-            self,
-            r_group_substituents: Dict[int, List[Tuple[int, "Oligomer"]]] = {},
-            ignore_r: int = 0,
-        ) -> List[Dict[int, Tuple[int, "Oligomer"]]]:
+        self,
+        r_group_substituents: Dict[int, List[Tuple[int, "Oligomer"]]] = {},
+        ignore_r: int = 0,
+    ) -> List[Dict[int, Tuple[int, "Oligomer"]]]:
         """
         Get the applicable substituents for all R-groups, except
         the ignored number.
         """
         r_nums = [r for r in self.r_group_indices if r != ignore_r]
         # TODO: should I let this go through without fulfilling all Rs?
-        keys, r_subs = [], []
+        # keys, r_subs = [], []
         r_subs = [r_group_substituents.get(r, []) for r in r_nums]
         return [dict(zip(r_nums, x)) for x in itertools.product(*r_subs)]
-    
 
     def get_cap_combinations(
-            self,
-            r_group_substituents: Dict[int, List[Tuple[int, "Oligomer"]]] = {},
-        ) -> Dict[int, List[Dict[int, Tuple[int, "Oligomer"]]]]:
+        self,
+        r_group_substituents: Dict[int, List[Tuple[int, "Oligomer"]]] = {},
+    ) -> Dict[int, List[Dict[int, Tuple[int, "Oligomer"]]]]:
         combinations = {}
         for r in self.r_group_indices:
             substituents = self.get_applicable_caps(r_group_substituents,
@@ -142,7 +138,6 @@ class Oligomer:
             combinations[r] = substituents
         return combinations
 
-    
     def get_central_and_neighbor_indices(self, n_neighbors: int = 3) -> List[int]:
         seen = set(self.central_atom_indices)
         layer = seen
@@ -160,11 +155,10 @@ class Oligomer:
 
         return sorted(seen)
 
-
     def attach_substituents(
-            self,
-            r_group_substituents: Dict[int, "Oligomer"] = {},
-        ) -> "Oligomer":
+        self,
+        r_group_substituents: Dict[int, "Oligomer"] = {},
+    ) -> "Oligomer":
         rct = Oligomer(self)
         for rct_r, (sub_r, sub) in r_group_substituents.items():
             expected_r_groups = {r for r in rct.r_group_indices if r != rct_r}
@@ -172,7 +166,7 @@ class Oligomer:
             rct = attach_substituent_and_label(rct_r, sub_r, rct, sub)
             # symmetry can cause issues
             r_groups = set(rct.r_group_indices)
-            if r_groups != expected_r_groups :
+            if r_groups != expected_r_groups:
                 try:
                     old = (r_groups - expected_r_groups).pop()
                     new = (expected_r_groups - r_groups).pop()
@@ -182,9 +176,9 @@ class Oligomer:
         return rct
 
     def generate_substituted_caps(
-            self,
-            r_group_substituents: Dict[int, List[Tuple[int, "Oligomer"]]] = {},
-        ) -> Dict[int, "Oligomer"]:
+        self,
+        r_group_substituents: Dict[int, List[Tuple[int, "Oligomer"]]] = {},
+    ) -> Dict[int, "Oligomer"]:
         combinations = self.get_cap_combinations(r_group_substituents)
         substituted = defaultdict(list)
         for num, groups in combinations.items():
@@ -194,9 +188,9 @@ class Oligomer:
         return substituted
 
     def generate_substituted(
-            self,
-            r_group_substituents: Dict[int, List[Tuple[int, "Oligomer"]]] = {},
-        ) -> List["Oligomer"]:
+        self,
+        r_group_substituents: Dict[int, List[Tuple[int, "Oligomer"]]] = {},
+    ) -> List["Oligomer"]:
         combinations = self.get_applicable_caps(r_group_substituents)
         substituted = []
         for group in combinations:
@@ -204,15 +198,15 @@ class Oligomer:
         return substituted
 
     def build_all_combinations(
-            self,
-            r_group_substituents: Dict[int, List["Oligomer"]] = {},
-            repeat: int = 1,
-        ):
+        self,
+        r_group_substituents: Dict[int, List["Oligomer"]] = {},
+        repeat: int = 1,
+    ):
         # TODO: pretty sure this logic is wrong for residues
         # with multiple linkages
         substituted = self.generate_substituted(r_group_substituents)
         substituted = substituted[0]
-        
+
         while substituted.r_group_indices:
             substituted = substituted.generate_substituted(r_group_substituents)
             substituted = substituted[0]
@@ -222,7 +216,7 @@ class Oligomer:
         if isinstance(fragmenter, type):
             fragmenter = fragmenter()
         results = fragmenter.fragment(self.offmol)
-        fragments = []
+        # fragments = []
         central_atom_indices = set(self.central_atom_map)
 
         # find fragments that overlap with central region
@@ -232,10 +226,10 @@ class Oligomer:
             indices = set(i - 1 for i in mol.properties["atom_map"].values())
             if indices.intersection(central_atom_indices):
                 fragment_indices |= indices
-        
+
         atom_indices = sorted(fragment_indices)
-        newmol, atom_indices = subset_mol(self.offmol, atom_indices, check_bonds=True,
-                                          return_atom_indices=True)
+        newmol, atom_indices = subset_offmol(self.offmol, atom_indices, check_bonds=True,
+                                             return_atom_indices=True)
 
         new_atom_map = {}
         new_oligomer_map = {}
@@ -296,7 +290,7 @@ class Oligomer:
         atom2 = self.offmol.atoms[index2]
         return offutils.atoms_are_bonded(atom1, atom2)
 
-    def get_central_forcefield_parameters(self, forcefield, n_neighbors: int=3):
+    def get_central_forcefield_parameters(self, forcefield, n_neighbors: int = 3):
         handler_kwargs = self.get_forcefield_parameters(forcefield)
         relevant_indices = self.get_central_and_neighbor_indices(n_neighbors)
         return self.select_relevant_parameters(handler_kwargs, relevant_indices)
@@ -306,18 +300,18 @@ class Oligomer:
         return itertools.product(*atom_indices)
 
     def contains_monomer_atoms(
-            self,
-            monomer_atoms: List[AtomWrapper],
-            handler_name: str = None,
-            return_indices: bool = False,
-        ):
+        self,
+        monomer_atoms: List[AtomWrapper],
+        handler_name: str = None,
+        return_indices: bool = False,
+    ):
         contained = set(self.atom_oligomer_map.values())
 
         if not all(atom in contained for atom in monomer_atoms):
             if return_indices:
                 return False, []
             return False
-        
+
         if len(monomer_atoms) == 1:
             if return_indices:
                 return True, [(i,) for i, v in self.atom_oligomer_map.items() if v == monomer_atoms[0]]
@@ -326,10 +320,10 @@ class Oligomer:
         atom_indices = sorted(map(tuple, self.get_monomer_atomgroup_indices(monomer_atoms)))
         combinations = [[self.offmol.atoms[i] for i in ix] for ix in atom_indices]
 
-        bond_check = lambda atoms: offutils.atoms_are_bonded(atoms[0], atoms[1])
-        angle_check = lambda atoms: offutils.atoms_are_bonded(atoms[1], atoms[2])
-        proper_check = lambda atoms: offutils.atoms_are_bonded(atoms[2], atoms[3])
-        improper_check = lambda atoms: offutils.atoms_are_bonded(atoms[1], atoms[3])
+        def bond_check(atoms): return offutils.atoms_are_bonded(atoms[0], atoms[1])
+        def angle_check(atoms): return offutils.atoms_are_bonded(atoms[1], atoms[2])
+        def proper_check(atoms): return offutils.atoms_are_bonded(atoms[2], atoms[3])
+        def improper_check(atoms): return offutils.atoms_are_bonded(atoms[1], atoms[3])
 
         n_monomer_atoms = len(monomer_atoms)
 
@@ -354,7 +348,7 @@ class Oligomer:
         if return_indices:
             return False, valid_indices
         return False
-    
+
     def get_monomer_atom_indices(self, monomer_atom: AtomWrapper):
         indices = []
         for index, atom in self.atom_oligomer_map.items():
@@ -363,13 +357,50 @@ class Oligomer:
         return sorted(indices)
 
 
-
 class Monomer(Oligomer):
+    """
+    An input monomer for the polymetrizer. This should have joining
+    points defined as R-groups or dummy atoms ("*") in a string;
+    each should be numbered.
+
+    Parameters
+    ----------
+    smiles_or_offmol: str, openff.toolkit.topology.Molecule, Oligomer
+        This should be either a SMILES string that can be converted
+        into a Molecule, a Molecule, or an existing Monomer or Oligomer.
+
+
+    Examples
+    --------
+
+    You can create a Monomer from R-group SMILES strings::
+
+        r_h1 = Monomer("[R1][H]")  # monomer with joining point numbered 1
+        r_h2 = Monomer("[R3][H]")  # monomer with joining point numbered 3
+        mol = Monomer(""C([R1])([R6])=N([R3])")  # monomer with joining points numbered 1, 6, 3
+
+    or dummy strings::
+
+        r_h1 = Monomer("[*:1][H]")  # monomer with joining point numbered 1
+        r_h2 = Monomer("[3*:3][H]")  # monomer with joining point numbered 3
+        mol = Monomer("C([*:1])([*:6])=N([*:3])")  # monomer with joining points numbered 1, 6, 3
+
+    or an existing OpenFF molecule::
+
+        from openff.toolkit.topology import Molecule
+        offmol = Molecule.from_smiles("C([*:1])([*:6])=N([*:3])")
+        mol = Monomer(offmol)
+
+    or an existing monomer or oligomer::
+
+        mol2 = Monomer(mol)
+
+    """
 
     def __init__(
-            self,
-            smiles_or_offmol: Union[str, OFFMolecule, "Oligomer"]
-        ):
+        self,
+        smiles_or_offmol: Union[str, OFFMolecule, "Oligomer"],
+    ):
         if isinstance(smiles_or_offmol, str):
             smiles = utils.replace_R_with_dummy(smiles_or_offmol)
             smiles_or_offmol = OFFMolecule.from_smiles(smiles, allow_undefined_stereo=True)
@@ -381,12 +412,8 @@ class Monomer(Oligomer):
         super().__init__(smiles_or_offmol, indices, atom_oligomer_map)
 
 
+HYDROGEN = Monomer("[R1][H]")
 
-        
-
-
-HYDROGEN = Monomer("([R1])[H]")
 
 def create_hydrogen_caps(r_group_numbers):
     return {r: [(1, HYDROGEN)] for r in r_group_numbers}
-

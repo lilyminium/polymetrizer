@@ -1,11 +1,10 @@
 from collections import defaultdict
 
-import numpy as np
-from simtk.openmm.openmm import *
+from simtk.openmm.openmm import (NonbondedForce, HarmonicBondForce,
+                                 HarmonicAngleForce, PeriodicTorsionForce)
 
-from . import utils, offutils
+from . import utils
 from .offutils import OFFParam, ChargeParam, TorsionParam
-
 
 
 def get_nonbonded_parameters(force, **kwargs):
@@ -16,6 +15,7 @@ def get_nonbonded_parameters(force, **kwargs):
         charges[(fcix,)] = ChargeParam(dict(charge=[charge]))
         vdw[(fcix,)] = OFFParam(dict(sigma=sigma, epsilon=epsilon))
     return dict(LibraryCharges=charges, vdW=vdw)
+
 
 def get_bond_parameters(force, **kwargs):
     parameter_names = ("length", "k")
@@ -28,6 +28,7 @@ def get_bond_parameters(force, **kwargs):
         bonds[tuple(atoms)] = OFFParam(dict(zip(parameter_names, param[2:])))
     return dict(Bonds=bonds)
 
+
 def get_angle_parameters(force, **kwargs):
     parameter_names = ("angle", "k")
     angles = {}
@@ -38,6 +39,7 @@ def get_angle_parameters(force, **kwargs):
             atoms = atoms[::-1]
         angles[tuple(atoms)] = OFFParam(dict(zip(parameter_names, param[3:])))
     return dict(Angles=angles)
+
 
 def get_torsion_parameters(force, oligomer=None, **kwargs):
     parameter_names = ("periodicity", "phase", "k")
@@ -56,7 +58,7 @@ def get_torsion_parameters(force, oligomer=None, **kwargs):
         atoms = tuple(atoms)
         for k, v in zip(parameter_names, param[4:]):
             dest[atoms][k].append(v)
-    
+
     real_propers = {}
     real_impropers = {}
     for atoms, info in propers.items():
@@ -64,7 +66,6 @@ def get_torsion_parameters(force, oligomer=None, **kwargs):
     for atoms, info in impropers.items():
         real_impropers[atoms] = TorsionParam(info)
     return dict(ProperTorsions=real_propers, ImproperTorsions=real_impropers)
-    
 
 
 def quantity_to_value(obj):
@@ -74,41 +75,6 @@ def quantity_to_value(obj):
         return obj._value
     except AttributeError:
         return obj
-
-# def operate_on_quantities(func, *args, **kwargs):
-#     # OpenMM's units are SO incredibly annoying
-#     return func(*args, **kwargs)
-    
-
-    # accept:
-    # quantities, list of quantities
-    # clean = [quantity_to_value(arg) for arg in args]
-    # return func(clean, **kwargs)
-
-
-    # clean = []
-    # for arg in args:
-    #     if not isinstance(arg, list):
-    #         try:
-    #             arg = list(arg)
-    #         except TypeError:
-    #             try:
-    #                 arg = np.asarray(arg)
-    #             except TypeError:
-    #                 arg = [arg]
-    #     clean.append(arg)
-    
-    # clean = [np.ravel(x) for x in clean]
-    # return func(*clean, **kwargs)
-
-    # try:
-    #     return func(*clean, **kwargs)
-    # except TypeError:
-    #     try:
-    #         return func(*[x._value for x in clean], **kwargs)
-    #     except (TypeError, AttributeError):
-    #         clean = [[x._value for x in y] for y in clean]
-    #         return func(*clean, **kwargs)
 
 
 OPENMM_FORCE_PARSERS = {

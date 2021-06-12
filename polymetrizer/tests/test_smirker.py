@@ -87,7 +87,7 @@ class TestSingleParameter:
 
 
 @pytest.fixture
-def bma_bma(bma):
+def bma_bma_polymetrizer(bma):
     bma2 = pet.Monomer(BMA_R_SMILES)
     met = pet.Polymetrizer([bma, bma2])
     met.create_oligomers(n_neighbor_monomers=0)
@@ -95,8 +95,8 @@ def bma_bma(bma):
 
 
 @pytest.fixture
-def bma_bma_parameters(bma_bma, forcefield):
-    parameters = bma_bma.get_forcefield_parameters(forcefield, n_overlapping_atoms=0)
+def bma_bma_parameters(bma_bma_polymetrizer, forcefield):
+    parameters = bma_bma_polymetrizer.get_forcefield_parameters(forcefield, n_overlapping_atoms=0)
     return parameters
 
 class TestSmirker:
@@ -113,11 +113,11 @@ class TestSmirker:
         assert len(bonds[key].single_parameters) == 2
         assert_almost_equal(bonds[key].mean_parameter.fields["length"]._value, 0.10939, 5)
     
-    def test_get_combined_smirks_parameter(self, bma_bma, bma_bma_parameters):
+    def test_get_combined_smirks_parameter(self, bma_bma_polymetrizer, bma_bma_parameters):
         lc = bma_bma_parameters["LibraryCharges"]
         assert len(lc) == 48
         smirker = Smirker(lc)
-        bma = bma_bma.monomers[0]
+        bma = bma_bma_polymetrizer.monomers[0]
         param = smirker.get_combined_smirks_parameter(bma, compressed=True)
         
         smirks = ("[#6:1](-[#1:2])(-[#1:3])-[#6:4](-[#6:5](=[#8:6])-[#8:7]-"
@@ -127,11 +127,11 @@ class TestSmirker:
         assert param["smirks"] == smirks
         assert len(param["charge"]) == 24
 
-    def test_get_smirks_for_oligomer(self, bma_bma, bma_bma_parameters):
+    def test_get_smirks_for_oligomer(self, bma_bma_polymetrizer, bma_bma_parameters):
         angles = bma_bma_parameters["Angles"]
         assert len(angles) == 80
         smirker = Smirker(angles)
-        bma = bma_bma.monomers[0]
+        bma = bma_bma_polymetrizer.monomers[0]
         parameters = smirker.get_smirks_for_oligomer(bma, compressed=True)
         assert len(parameters) == 40
         

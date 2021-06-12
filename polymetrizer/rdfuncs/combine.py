@@ -133,7 +133,7 @@ def attach_substituent_and_label(
     else:
         raise ValueError("could not match reactant and substituent")
             
-    offmol = utils.offmol_from_mol(product)
+    offmol = utils.mol_to_offmol(product)
 
     offmol.properties["atom_map"] = r_groups
 

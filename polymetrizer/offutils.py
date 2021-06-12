@@ -1,5 +1,4 @@
-from typing import Iterable, Optional, Tuple, List
-import copy
+from typing import Optional, Tuple, List
 from collections import defaultdict
 
 import numpy as np
@@ -7,8 +6,13 @@ from openff.toolkit.topology import Molecule as OFFMolecule
 
 from . import utils
 
+DEFAULT_ATOM_PATTERN = "[!$(*#*)&!$(*=*)&A&!D1:{i}]"
+DEFAULT_BOND_PATTERN = "-;!@".join([DEFAULT_ATOM_PATTERN.format(i=i) for i in [4, 1, 2, 3]])
+
+
 def mol_from_smiles(smiles: str) -> OFFMolecule:
     return OFFMolecule.from_smiles(smiles, allow_undefined_stereo=True)
+
 
 def atoms_are_bonded(atom1, atom2):
     for bond in atom1.bonds:
@@ -17,29 +21,30 @@ def atoms_are_bonded(atom1, atom2):
             return True
     return False
 
+
 def get_other_bond_atom(bond, atom):
     if bond.atom1 is atom:
         return bond.atom2
     return bond.atom1
 
+
 def get_other_bond_index(bond, index):
     if bond.atom1_index == index:
         return bond.atom2_index
     return bond.atom1_index
-    
-def get_bonds(
-        offmol,
-        pattern: Optional[str] = None,
-        get_bonds_only: bool = True,
-        ignore_neighbors: bool = True,
-        bond_atom_numbers: Tuple[int, int] = (1, 2),
-    ) -> List[tuple]:
+
+
+def get_bonds(offmol,
+              pattern: Optional[str] = None,
+              get_bonds_only: bool = True,
+              ignore_neighbors: bool = True,
+              bond_atom_numbers: Tuple[int, int] = (1, 2)) -> List[tuple]:
 
     if pattern is None:
         # SINGLE BONDS
         ATOM = "[!$(*#*)&!$(*=*)&A&!D1:{i}]"
         pattern = "-;!@".join([ATOM.format(i=i) for i in [4, 1, 2, 3]])
-    
+
     matches = offmol.chemical_environment_matches(pattern)
     unique_bonds = set()
     unique_matches = set()  # avoid long chains
@@ -68,32 +73,34 @@ class OFFParam:
 
     def __getitem__(self, item):
         return self.fields[item]
-    
+
     def keys(self):
         return self.fields.keys()
-    
+
     def values(self):
         return self.fields.values()
-    
+
     def items(self):
         return self.fields.items()
 
     @classmethod
     def averager(cls, concatenated):
-        return cls({k: np.mean(v) for k, v in concatenated.items()})
+        # required to average Quantities
+        return cls({k: np.sum(v) / len(v) for k, v in concatenated.items()})
 
     @classmethod
     def average(cls, parameters=[]):
         fields = [p.fields for p in parameters]
         concat = utils.concatenate_dicts(fields)
         return cls.averager(concat)
-        
-    
+
+
 class ChargeParam(OFFParam):
 
     @classmethod
     def averager(cls, concatenated):
-        return cls({k: [np.mean(v)] for k, v in concatenated.items()})
+        return cls({k: [np.mean(v, axis=0)] for k, v in concatenated.items()})
+
 
 class TorsionParam(OFFParam):
 
@@ -114,8 +121,7 @@ class TorsionParam(OFFParam):
             ks, shifts = zip(*kshifts)
             param["periodicity"].append(period)
             param["phase"].append(shifts[0])
-            param["k"].append(np.mean(ks))
+            param["k"].append(np.sum(ks)/len(ks))  # required to average Quantities
             param["idivf"].append(1)
 
         return cls(param)
-    

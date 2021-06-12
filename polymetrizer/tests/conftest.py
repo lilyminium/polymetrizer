@@ -21,6 +21,10 @@ def butenamine():
 def monomer_bta(butenamine):
     return pet.Monomer(butenamine)
 
+@pytest.fixture
+def system_bta(butenamine, forcefield):
+    return forcefield.create_openmm_system(butenamine.to_topology())
+
 
 @pytest.fixture
 def pegma():

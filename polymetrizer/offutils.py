@@ -2,6 +2,7 @@ from typing import Iterable, Optional, Tuple, List
 import copy
 from collections import defaultdict
 
+import numpy as np
 from openff.toolkit.topology import Molecule as OFFMolecule
 
 from . import utils
@@ -79,7 +80,7 @@ class OFFParam:
 
     @classmethod
     def averager(cls, concatenated):
-        return cls({k: np.mean(v) for v in concatenated.items()})
+        return cls({k: np.mean(v) for k, v in concatenated.items()})
 
     @classmethod
     def average(cls, parameters=[]):
@@ -92,7 +93,7 @@ class ChargeParam(OFFParam):
 
     @classmethod
     def averager(cls, concatenated):
-        return cls({k: [np.mean(v)] for v in concatenated.items()})
+        return cls({k: [np.mean(v)] for k, v in concatenated.items()})
 
 class TorsionParam(OFFParam):
 
@@ -100,7 +101,7 @@ class TorsionParam(OFFParam):
     def average(cls, parameters=[]):
         by_periodicity_and_shift = defaultdict(list)
         for param in parameters:
-            priodicities = param["periodicity"]
+            periodicities = param["periodicity"]
             shifts = param["phase"]
             ks = param["k"]
 
@@ -108,12 +109,13 @@ class TorsionParam(OFFParam):
                 by_periodicity_and_shift[(period, shift._value)].append((k, shift))
         param = {"periodicity": [], "phase": [], "k": [], "idivf": []}
         # TODO: check lengths to make sure I'm not accidentally adding too many terms
-        for (period, _), kshifts in by_periodicity_and_shift.items():
+        for period, _ in sorted(by_periodicity_and_shift):
+            kshifts = by_periodicity_and_shift[(period, _)]
             ks, shifts = zip(*kshifts)
             param["periodicity"].append(period)
             param["phase"].append(shifts[0])
             param["k"].append(np.mean(ks))
             param["idivf"].append(1)
 
-        return param
+        return cls(param)
     

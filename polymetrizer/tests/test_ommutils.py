@@ -14,17 +14,13 @@ from openff.toolkit.topology import Molecule
 import polymetrizer as pet
 
 
-@pytest.fixture
-def system(butenamine, forcefield):
-    return forcefield.create_openmm_system(butenamine.to_topology())
-
-def get_force(system, forcetype):
-    for f in system.getForces():
+def get_force(system_bta, forcetype):
+    for f in system_bta.getForces():
         if isinstance(f, forcetype):
             return f
 
-def test_get_nonbonded_parameters(system):
-    force = get_force(system, NonbondedForce)
+def test_get_nonbonded_parameters(system_bta):
+    force = get_force(system_bta, NonbondedForce)
     nb = pet.ommutils.get_nonbonded_parameters(force)
     assert len(nb) == 2
     assert len(nb["LibraryCharges"]) == 14
@@ -41,8 +37,8 @@ def test_get_nonbonded_parameters(system):
     assert_almost_equal(last_vdw.fields["epsilon"]._value, 0.06569, decimal=5)
 
 
-def test_get_bond_parameters(system):
-    force = get_force(system, HarmonicBondForce)
+def test_get_bond_parameters(system_bta):
+    force = get_force(system_bta, HarmonicBondForce)
     bonds = pet.ommutils.get_bond_parameters(force)
     assert len(bonds) == 1
     assert len(bonds["Bonds"]) == 13
@@ -52,8 +48,8 @@ def test_get_bond_parameters(system):
     assert_almost_equal(first.fields["length"]._value, 0.15010, 5)
 
 
-def test_get_angle_parameters(system):
-    force = get_force(system, HarmonicAngleForce)
+def test_get_angle_parameters(system_bta):
+    force = get_force(system_bta, HarmonicAngleForce)
     angles = pet.ommutils.get_angle_parameters(force)
     assert len(angles) == 1
     assert len(angles["Angles"]) == 21
@@ -63,8 +59,8 @@ def test_get_angle_parameters(system):
     assert_almost_equal(first.fields["angle"]._value, 2.21561, 5)
 
 
-def test_get_torsion_parameters(system, monomer_bta):
-    force = get_force(system, PeriodicTorsionForce)
+def test_get_torsion_parameters(system_bta, monomer_bta):
+    force = get_force(system_bta, PeriodicTorsionForce)
     assert force.getNumTorsions() == 36
     torsions = pet.ommutils.get_torsion_parameters(force, oligomer=monomer_bta)
     assert len(torsions) == 2
@@ -87,6 +83,7 @@ def test_get_torsion_parameters(system, monomer_bta):
     assert_almost_equal([x._value for x in single.fields["k"]], [1.39467], 5)
     assert_almost_equal([x._value for x in single.fields["phase"]], [np.pi], 5)
     assert_equal(single.fields["periodicity"], [2])
+
 
 # # @pytest.mark.parametrize("arg, kwargs, result", [
 # #     ([1, 2], {}, 1.5),

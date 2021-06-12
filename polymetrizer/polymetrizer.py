@@ -181,13 +181,20 @@ class Polymetrizer:
             forcefield: ForceField,
             n_overlapping_atoms: int = 3,
         ):
-        all_handler_kwargs = defaultdict(list)
+        all_handler_kwargs = defaultdict(lambda: defaultdict(list))
+        # print("func")
+        
 
         for oligomer in self.oligomers:
             central = oligomer.get_central_forcefield_parameters(forcefield, n_overlapping_atoms)
+            # print(central)
+            # assert False
             for handler_name, parameters in central.items():
-                for param in parameters.values():
-                    all_handler_kwargs[handler_name].append(param)
+                # all_handler_kwargs[handler_name].extend(parameters)
+                for monomer_atoms, params in parameters.items():
+                    all_handler_kwargs[handler_name][monomer_atoms].extend(params)
+                    # print(all_handler_kwargs[handler_name][monomer_atoms])
+                    # raise ValueError
         
         # grouped_handler_kwargs = defaultdict(dict)
 
@@ -242,7 +249,7 @@ class Polymetrizer:
             smirker = Smirker(handler_kwargs)
             unified_smirks = smirker.get_unified_smirks_parameters(context="residue", compressed=compressed)
             for smirks, group_parameter in unified_smirks.items():
-                param = dict(smirks=smirks, **group_parameter.mean_parameter)
+                param = dict(smirks=smirks, **group_parameter.mean_parameter.fields)
                 handler.add_parameter(param)
 
         return forcefield
@@ -278,7 +285,7 @@ class Polymetrizer:
 
             unified_smirks = smirker.get_smirks_for_oligomer(oligomer, compressed=compressed)
             for smirks, group_parameter in unified_smirks.items():
-                param = dict(smirks=smirks, **group_parameter.mean_parameter)
+                param = dict(smirks=smirks, **group_parameter.mean_parameter.fields)
                 try:
                     handler.add_parameter(param)
                 except:  # TODO: figure out error

@@ -278,16 +278,16 @@ class Oligomer:
     def select_relevant_parameters(self, handler_kwargs, relevant_indices):
         central_kwargs = {}
         for handler_name, atomgroup_kwargs in handler_kwargs.items():
-            # central_handler = defaultdict(list)
-            central_handler = []
+            central_handler = defaultdict(list)
+            # central_handler = []
             for indices, fields in atomgroup_kwargs.items():
                 if not all(i in relevant_indices for i in indices):
                     continue
                 if not all(i in self.atom_oligomer_map for i in indices):
                     continue
                 param = SingleParameter(indices, self, fields)
-                central_handler.append(param)
-                # central_handler[param.monomer_atoms].append(param)
+                # central_handler.append(param)
+                central_handler[param.monomer_atoms].append(param)
             central_kwargs[handler_name] = central_handler
         return central_kwargs
 

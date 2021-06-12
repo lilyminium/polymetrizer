@@ -106,8 +106,8 @@ class SingleParameter:
         for k in self.parameter.keys():
             ak = self.parameter[k]
             bk = other.parameter[k]
-            if not np.allclose(ak, bk, rtol=1e-04, atol=1e-05):
-                return False
+            # if not np.allclose(ak, bk, rtol=1e-04, atol=1e-05):
+            #     return False
         return True
 
     def copy_with_parameter(self, parameter):
@@ -128,13 +128,13 @@ class AtomGroupParameter:
 
     @property
     def parameters(self):
-        return [p.parameter in self.single_parameters]
+        return [p.parameter for p in self.single_parameters]
 
     @property
     def mean_parameter(self):
         parameters = self.parameters
         first = parameters[0]
-        return first.average(parameters).fields
+        return first.average(parameters)
 
 
 
@@ -160,20 +160,19 @@ class Smirker:
         for monomer_atoms, single_parameters in parameters_by_monomer_atoms.items():
             grouped = AtomGroupParameter(single_parameters)
             self.parameters_by_monomer_atoms[monomer_atoms] = grouped
-            avg = grouped.avg
+            avg = grouped.mean_parameter
             for single in single_parameters:
                 self.single_parameters.append(single.copy_with_parameter(avg))
 
-        self._is_singular_atom_term = all(len(p.atom_indices) == 1 for p in self.single_atomgroup_params)
+        self._is_singular_atom_term = all(len(p.atom_indices) == 1 for p in self.single_parameters)
     
     def get_unified_smirks_parameters(self, context: Literal["all", "residue", "minimal"]="residue", compressed=True):
         smirks_to_param = defaultdict(list)
 
         # identify parameters with identical smirks
         for parameter in self.single_parameters:
-            for smirks in parameter.get_smirks(context=context, compressed=compressed):
-                for smirk in smirks:
-                    smirks_to_param[smirk].append(parameter)
+            smirk = parameter.create_smirks(context=context, compressed=compressed)
+            smirks_to_param[smirk].append(parameter)
         
         # merge if compatible
         return self._unify_smirks(smirks_to_param)
@@ -196,7 +195,7 @@ class Smirker:
                                                                    return_indices=True)
             for label_indices in all_label_indices:
                 tmp_parameter = SingleParameter(label_indices, oligomer, avg)
-                smirks = tmp_parameter.get_smirks(context="all", compressed=compressed)
+                smirks = tmp_parameter.create_smirks(context="all", compressed=compressed)
                 smirks_to_param[smirks].append(tmp_parameter)
         
         return self._unify_smirks(smirks_to_param)
@@ -207,23 +206,26 @@ class Smirker:
         if not self._is_singular_atom_term:
             raise NotImplementedError("Combined SMIRKS is only supported for 1-atom terms")
 
-
         label_indices = []
-        # parameters = defaultdict(list)
-        parameters = []
+        parameters = defaultdict(list)
+        # parameters = []
         for i, wrapper in oligomer.atom_oligomer_map.items():
-            label_indices.append(i)
-            param = self.parameters_by_monomer_atoms[(wrapper,)]
-            for k, v in param.mean_parameter.items():
-                parameters[k].append(v)
+            try:
+                param = self.parameters_by_monomer_atoms[(wrapper,)]
+            except KeyError:
+                pass
+            else:
+                label_indices.append(i)
+                for k, v in param.mean_parameter.items():
+                    parameters[k].append(v)
 
         n_indices = len(label_indices)
-        all_indices = np.arange(oligomer.offmol.n_atoms)
+        all_indices = [i for i, atom in enumerate(oligomer.offmol.atoms) if atom.atomic_number != 0]
         smirks = create_smirks(oligomer, atom_indices=all_indices, label_indices=label_indices, compressed=compressed)
         
         flat = {}
         for k, v in parameters.items():
-            flat[k] = np.reshape(np.array(v).reshape((-1,)))
+            flat[k] = np.array(v).reshape((-1,))
             if not len(flat[k]) == n_indices:
                 raise ValueError("length mismatch between parameters and indices: "
                                  f"len(indices) == {n_indices}, len({k}) == {len(flat[k])}")

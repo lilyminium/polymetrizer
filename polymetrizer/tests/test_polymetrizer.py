@@ -36,3 +36,7 @@ class TestPolymetrizer:
             8: [(7, split_mol.monomers[3])],
         }
         assert split_mol.caps_for_r_groups == caps_for_r_groups
+
+
+class TestSmirker:
+    

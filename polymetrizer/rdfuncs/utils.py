@@ -178,12 +178,15 @@ def get_fragment_indices(oligomer):
 
 def create_labeled_smarts(offmol, atom_indices=[], label_indices=[]):
     rdmol = Chem.RWMol(offmol.to_rdkit())
-    for num, index in enumerate(atom_indices, 1):
-        rdmol.GetAtomWithIdx(index).SetAtomMapNum(num)
+    for num, atom in enumerate(rdmol.GetAtoms(), 1):
+        atom.SetAtomMapNum(num)
+    # for num, index in enumerate(atom_indices, 1):
+    #     rdmol.GetAtomWithIdx(index).SetAtomMapNum(num)
     
     indices = set(label_indices) | set(atom_indices)
     to_del = [i for i in range(offmol.n_atoms) if i not in indices]
     for index in to_del[::-1]:
         rdmol.RemoveAtom(index)
-    rdmol.UpdatePropertyCache()
-    return mol_to_smarts(rdmol)
+    rdmol.UpdatePropertyCache(strict=False)
+    smarts = mol_to_smarts(rdmol)
+    return smarts

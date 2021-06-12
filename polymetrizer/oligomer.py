@@ -8,7 +8,7 @@ import numpy as np
 from openff.toolkit.topology import Molecule as OFFMolecule
 
 from . import utils, offutils, ommutils
-from .smirker import SingleOligomerAtomGroupParameter
+from .smirker import SingleParameter
 
 try:
     from .oefuncs import attach_substituent_and_label, get_sub_smarts, subset_mol
@@ -272,22 +272,29 @@ class Oligomer:
                 parser = ommutils.OPENMM_FORCE_PARSERS[type(force)]
             except KeyError:
                 continue
-            handler_kwargs.update(parser(force))
+            handler_kwargs.update(parser(force, oligomer=self))
         return handler_kwargs
 
     def select_relevant_parameters(self, handler_kwargs, relevant_indices):
         central_kwargs = {}
         for handler_name, atomgroup_kwargs in handler_kwargs.items():
-            central_handler = {}
-            for indices, hkwargs in atomgroup_kwargs.items():
+            # central_handler = defaultdict(list)
+            central_handler = []
+            for indices, fields in atomgroup_kwargs.items():
                 if not all(i in relevant_indices for i in indices):
                     continue
                 if not all(i in self.atom_oligomer_map for i in indices):
                     continue
-                param = SingleOligomerAtomGroupParameter(indices, self, hkwargs)
-                central_handler[param.monomer_atoms] = param
+                param = SingleParameter(indices, self, fields)
+                central_handler.append(param)
+                # central_handler[param.monomer_atoms].append(param)
             central_kwargs[handler_name] = central_handler
         return central_kwargs
+
+    def atoms_are_bonded(self, index1, index2):
+        atom1 = self.offmol.atoms[index1]
+        atom2 = self.offmol.atoms[index2]
+        return offutils.atoms_are_bonded(atom1, atom2)
 
     def get_central_forcefield_parameters(self, forcefield, n_neighbors: int=3):
         handler_kwargs = self.get_forcefield_parameters(forcefield)
@@ -365,13 +372,13 @@ class Monomer(Oligomer):
         ):
         if isinstance(smiles_or_offmol, str):
             smiles = utils.replace_R_with_dummy(smiles_or_offmol)
-            offmol = OFFMolecule.from_smiles(smiles, allow_undefined_stereo=True)
+            smiles_or_offmol = OFFMolecule.from_smiles(smiles, allow_undefined_stereo=True)
         elif isinstance(smiles_or_offmol, Oligomer):
-            offmol = smiles_or_offmol.offmol
-        indices = [i for i, atom in enumerate(offmol.atoms)
+            smiles_or_offmol = smiles_or_offmol.offmol
+        indices = [i for i, atom in enumerate(smiles_or_offmol.atoms)
                    if atom.atomic_number != 0]
         atom_oligomer_map = {j: AtomWrapper(self, j) for j in indices}
-        super().__init__(offmol, indices, atom_oligomer_map)
+        super().__init__(smiles_or_offmol, indices, atom_oligomer_map)
 
 
 

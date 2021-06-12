@@ -44,6 +44,16 @@ def average_dicts(dicts: List[Dict[str, Any]] = []):
     return {k: np.sum(v, axis=0)/n_items for k, v in collector.items()}
 
 
+def concatenate_dicts(dicts):
+    keys = dicts[0].keys()
+    if not all(d.keys() == keys for d in dicts):
+        raise ValueError("All given dicts must have the same keys")
+    collector = defaultdict(list)
+    for k in keys:
+        for dct in dicts:
+            collector[k].append(dct[k])
+    return collector
+
 def isiterable(obj):
     """
     Returns ``True`` if ``obj`` is iterable and not a string

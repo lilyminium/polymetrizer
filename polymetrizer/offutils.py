@@ -1,9 +1,10 @@
 from typing import Iterable, Optional, Tuple, List
 import copy
-
+from collections import defaultdict
 
 from openff.toolkit.topology import Molecule as OFFMolecule
 
+from . import utils
 
 def mol_from_smiles(smiles: str) -> OFFMolecule:
     return OFFMolecule.from_smiles(smiles, allow_undefined_stereo=True)
@@ -57,3 +58,62 @@ def get_bonds(
     if get_bonds_only:
         return unique_bonds
     return unique_matches
+
+
+class OFFParam:
+
+    def __init__(self, kwargs):
+        self.fields = kwargs
+
+    def __getitem__(self, item):
+        return self.fields[item]
+    
+    def keys(self):
+        return self.fields.keys()
+    
+    def values(self):
+        return self.fields.values()
+    
+    def items(self):
+        return self.fields.items()
+
+    @classmethod
+    def averager(cls, concatenated):
+        return cls({k: np.mean(v) for v in concatenated.items()})
+
+    @classmethod
+    def average(cls, parameters=[]):
+        fields = [p.fields for p in parameters]
+        concat = utils.concatenate_dicts(fields)
+        return cls.averager(concat)
+        
+    
+class ChargeParam(OFFParam):
+
+    @classmethod
+    def averager(cls, concatenated):
+        return cls({k: [np.mean(v)] for v in concatenated.items()})
+
+class TorsionParam(OFFParam):
+
+    @classmethod
+    def average(cls, parameters=[]):
+        by_periodicity_and_shift = defaultdict(list)
+        for param in parameters:
+            priodicities = param["periodicity"]
+            shifts = param["phase"]
+            ks = param["k"]
+
+            for period, shift, k in zip(periodicities, shifts, ks):
+                by_periodicity_and_shift[(period, shift._value)].append((k, shift))
+        param = {"periodicity": [], "phase": [], "k": [], "idivf": []}
+        # TODO: check lengths to make sure I'm not accidentally adding too many terms
+        for (period, _), kshifts in by_periodicity_and_shift.items():
+            ks, shifts = zip(*kshifts)
+            param["periodicity"].append(period)
+            param["phase"].append(shifts[0])
+            param["k"].append(np.mean(ks))
+            param["idivf"].append(1)
+
+        return param
+    

@@ -46,23 +46,7 @@ class TestMonomer:
         another = Monomer(smiles)
         # assert monomer == another
         # assert hash(monomer) != hash(another)
-    
 
-@pytest.fixture
-def pegma():
-    monomer = Monomer(PEGMA_R_SMILES)
-    assert monomer.offmol.n_atoms == 45
-    assert set(monomer.r_group_indices.keys()) == {1, 2}
-    assert len(monomer.atom_oligomer_map) == 43
-    return monomer
-
-@pytest.fixture
-def bma():
-    return Monomer(BMA_R_SMILES)
-
-@pytest.fixture
-def pegma_pegma(pegma):
-    return pegma.attach_substituents({1: (2, pegma)})
 
 @pytest.fixture
 def cap_options(pegma, bma):
@@ -231,7 +215,6 @@ class TestOligomer:
         assert final.offmol.n_atoms == 94
         assert final.offmol.chemical_environment_matches(FULL_MOL_SMARTS)
     
-
     def test_select_relevant_parameters(self, pegma):
         handler_kwargs = {
             "bonds": {(1, 2): 3,
@@ -242,14 +225,46 @@ class TestOligomer:
         }
         relevant_indices = [1, 2, 4, 5]
         assert 5 not in pegma.atom_oligomer_map
-        
+
         selected = pegma.select_relevant_parameters(handler_kwargs, relevant_indices)
         atoms = pegma.atom_oligomer_map
+        # expected = {
+        #     "bonds": {(atoms[1], atoms[2]): pet.smirker.SingleParameter((1, 2), pegma, 3),
+        #               (atoms[2], atoms[4]): pet.smirker.SingleParameter((2, 4), pegma, 8)},
+        # }
         expected = {
-            "bonds": {(atoms[1], atoms[2]): pet.smirker.SingleOligomerAtomGroupParameter((1, 2), pegma, 3),
-                      (atoms[2], atoms[4]): pet.smirker.SingleOligomerAtomGroupParameter((2, 4), pegma, 8)},
+            "bonds": [
+                        pet.smirker.SingleParameter((1, 2), pegma, 3),
+                        pet.smirker.SingleParameter((2, 4), pegma, 8),
+                    ]
         }
 
         assert selected == expected
+
+    @pytest.fixture
+    def truncated_monomer(self):
+        offmol = OFFMolecule.from_smiles("C/C=C/(N)C")
+        monomer = pet.Monomer(offmol)
+        monomer.central_atom_indices = [0, 1, 5, 6, 7, 8]
+        return monomer
+
+    @pytest.mark.parametrize("n_neighbors, n_atoms, n_bonds, n_angles, n_dihedrals, n_impropers", [
+        (0, 6, 5, 7, 3, 0),
+        (1, 7, 6, 9, 6, 3),
+        (2, 9, 8, 12, 10, 6),
+        (3, 14, 13, 21, 20, 9), 
+    ])
+    def test_get_central_forcefield_parameters(self, truncated_monomer, forcefield,
+                                               n_neighbors, n_atoms, n_bonds,
+                                               n_angles, n_dihedrals, n_impropers):
+        params = truncated_monomer.get_central_forcefield_parameters(forcefield,
+                                                                     n_neighbors)
+        assert len(params["LibraryCharges"]) == n_atoms
+        assert len(params["vdW"]) == n_atoms
+        assert len(params["Bonds"]) == n_bonds
+        assert len(params["Angles"]) == n_angles
+        assert len(params["ProperTorsions"]) == n_dihedrals
+        assert len(params["ImproperTorsions"]) == n_impropers
+
 
 

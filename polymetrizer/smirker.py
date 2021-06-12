@@ -18,27 +18,43 @@ def create_full_atom_smirks(info):
     ring_size = info["min_ring_size"]
     ring = f"r{ring_size}" if ring_size else "!r"
 
-    data = dict(aromaticity=aromaticity, ring_size=ring, **atom_info)
+    data = dict(aromaticity=aromaticity, ring_size=ring, **info)
     return FULL_SMIRKS.format(**data)
+
+def create_compressed_atom_smirks(info):
+    return "[#{atomic_number:d}{label}]".format(**info)
 
 
 def create_smirks(oligomer, atom_indices=[], label_indices=[], compressed=True):
     atom_chemper_info = get_mol_chemper_info(oligomer)
-    smirks = create_labeled_smarts(oligomer.offmol, label_indices=label_indices, atom_indices=atom_indices)
-
+    raw_smarts = create_labeled_smarts(oligomer.offmol, label_indices=label_indices, atom_indices=atom_indices)
+    labels = {x: f":{i}" for i, x in enumerate(label_indices, 1)}
     # substitute
-    if not compressed:
-        raw_smarts = smirks
-        PATTERN = "\[[0-9a-zA-Z#@]*:([0-9]+)]"
-        for num in re.findall(PATTERN, raw_smarts):
-            info = atom_chemper_info[label_indices[int(num) - 1]]
-            atom_smirks = create_full_atom_smirks(info)
-            new_pattern = f"\[[0-9a-zA-Z#@]*:{num}]"
-            smirks = re.sub(new_pattern, atom_smirks, smirks)
+    if compressed:
+        func = create_compressed_atom_smirks
+    else:
+        func = create_full_atom_smirks
+
+    smirks = raw_smarts
+
+    PATTERN = "\[[0-9a-zA-Z#@]*:([0-9]+)]"
+    # do a double pass
+    for num in re.findall("\[[0-9a-zA-Z#@]*:([0-9]+)]", raw_smarts):
+        new_pattern = f"(\[[0-9a-zA-Z#@]*:)({num})]"
+        atom_smirks = r"\1-\2]"
+        smirks = re.sub(new_pattern, atom_smirks, smirks)
+
+    for num in re.findall("\[[0-9a-zA-Z#@]*:(-[0-9]+)]", smirks):
+        index = (-int(num)) - 1
+        info = dict(**atom_chemper_info[index])
+        info["label"] = labels.get(index, "")
+        atom_smirks = func(info)
+        new_pattern = f"(\[[0-9a-zA-Z#@]*:)({num})]"
+        smirks = re.sub(new_pattern, atom_smirks, smirks)
     return smirks
 
 
-class SingleOligomerAtomGroupParameter:
+class SingleParameter:
 
     def __init__(self, atom_indices, oligomer, parameter):
         self.atom_indices = tuple(atom_indices)
@@ -103,43 +119,24 @@ class SingleOligomerAtomGroupParameter:
 
 class AtomGroupParameter:
 
-    def __init__(self, single_atomgroup_parameters=[]):
-        self.single_atomgroup_parameters = list(single_atomgroup_parameters)
+    def __init__(self, single_parameters=[]):
+        self.single_parameters = list(single_parameters)
 
     @property
     def monomer_atoms(self):
-        return set(p.monomer_atoms for p in self.single_atomgroup_parameters)
+        return set(p.monomer_atoms for p in self.single_parameters)
 
     @property
     def parameters(self):
-        return [p.parameter in self.single_atomgroup_parameters]
+        return [p.parameter in self.single_parameters]
 
     @property
     def mean_parameter(self):
-        return utils.average_dicts(self.parameters)
-
-    # def get_smirks(self, context: Literal["all", "residue", "minimal"]="residue", compressed=True):
-    #     return set(p.get_smirks(context=context, compressed=compressed) for p in self.single_atomgroup_parameters)
-
-        
-    # def has_compatible_parameters(self, other):
-    #     for a, b in itertools.product(self.parameters, other.parameters):
-    #         if set(a.keys()) != set(b.keys()):
-    #             return False
-    #         for k in a.keys():
-    #             ak = a[k]
-    #             bk = b[k]
-    #             allclose = np.allclose(ak, bk, rtol=1e-04, atol=1e-05)
-    #             if not allclose:
-    #                 break
-    #         else:
-    #             return True
-    #     return False
+        parameters = self.parameters
+        first = parameters[0]
+        return first.average(parameters).fields
 
 
-# class SmirksParameter:
-
-#     def __init__(self, atomgroup_parameters):
 
 def are_parameters_compatible(parameters):
     parameters = list(parameters)
@@ -158,15 +155,14 @@ class Smirker:
     def __init__(self, parameters_by_monomer_atoms={}, handler_name=None):
         self.handler_name = handler_name
         # average all parameters that span the same monomer atoms
-        self.single_atomgroup_parameters = []
+        self.single_parameters = []
         self.parameters_by_monomer_atoms = {}
         for monomer_atoms, single_parameters in parameters_by_monomer_atoms.items():
             grouped = AtomGroupParameter(single_parameters)
             self.parameters_by_monomer_atoms[monomer_atoms] = grouped
             avg = grouped.avg
             for single in single_parameters:
-                single.parameter = avg
-                self.single_atomgroup_parameters.append(single.copy_with_parameter(avg))
+                self.single_parameters.append(single.copy_with_parameter(avg))
 
         self._is_singular_atom_term = all(len(p.atom_indices) == 1 for p in self.single_atomgroup_params)
     
@@ -174,7 +170,7 @@ class Smirker:
         smirks_to_param = defaultdict(list)
 
         # identify parameters with identical smirks
-        for parameter in self.single_atomgroup_parameters:
+        for parameter in self.single_parameters:
             for smirks in parameter.get_smirks(context=context, compressed=compressed):
                 for smirk in smirks:
                     smirks_to_param[smirk].append(parameter)
@@ -199,7 +195,7 @@ class Smirker:
             _, all_label_indices = oligomer.contains_monomer_atoms(monomer_atoms, handler_name=self.handler_name,
                                                                    return_indices=True)
             for label_indices in all_label_indices:
-                tmp_parameter = SingleOligomerAtomGroupParameter(label_indices, oligomer, avg)
+                tmp_parameter = SingleParameter(label_indices, oligomer, avg)
                 smirks = tmp_parameter.get_smirks(context="all", compressed=compressed)
                 smirks_to_param[smirks].append(tmp_parameter)
         
@@ -213,7 +209,8 @@ class Smirker:
 
 
         label_indices = []
-        parameters = defaultdict(list)
+        # parameters = defaultdict(list)
+        parameters = []
         for i, wrapper in oligomer.atom_oligomer_map.items():
             label_indices.append(i)
             param = self.parameters_by_monomer_atoms[(wrapper,)]

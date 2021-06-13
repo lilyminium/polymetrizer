@@ -77,8 +77,8 @@ class TestOligomer:
         assert bma < pegma
 
     @pytest.mark.parametrize("smiles, index", [
-        ("([1*])[H]", 0),
-        ("([*])[H]", 0),
+        ("[1*][H]", 0),
+        ("[*][H]", 0),
         ("C([1*:1])([*:2])=N([*])", 4)
     ])
     def test_create_oligomer_with_unlabelled(self, smiles, index):
@@ -247,9 +247,8 @@ class TestOligomer:
         assert list(selected["bonds"].values()) == expected
 
     @pytest.fixture
-    def truncated_monomer(self):
-        offmol = OFFMolecule.from_smiles("C/C=C/(N)C")
-        monomer = pet.Monomer(offmol)
+    def truncated_monomer(self, butenamine):
+        monomer = pet.Monomer(butenamine)
         monomer.central_atom_indices = [0, 1, 5, 6, 7, 8]
         return monomer
 

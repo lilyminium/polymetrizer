@@ -7,6 +7,7 @@ from openff.toolkit.topology import Molecule as OFFMolecule
 
 from . import utils
 
+
 def fragment_into_dummy_smiles(offmol, cleave_bonds=[]):
     rdmol = Chem.RWMol(offmol.to_rdkit())
     for atom in rdmol.GetAtoms():
@@ -36,14 +37,13 @@ def fragment_into_dummy_smiles(offmol, cleave_bonds=[]):
     smiles = [utils.mol_to_smiles(m) for m in mols]
     return smiles, r_linkages
 
-def subset_offmol(
-        offmol: OFFMolecule,
-        atom_indices: Iterable[int],
-        check_bonds=True,
-        return_atom_indices=False,
-        sanitize=True,
-        add_hs=True,
-    ) -> OFFMolecule:
+
+def subset_offmol(offmol: OFFMolecule,
+                  atom_indices: Iterable[int],
+                  check_bonds: bool = True,
+                  return_atom_indices: bool = False,
+                  sanitize: bool = True,
+                  add_hs: bool = True) -> OFFMolecule:
     rdmol = offmol.to_rdkit()
     for index, num in offmol.properties.get("atom_map", {}).items():
         rdmol.GetAtomWithIdx(index).SetAtomMapNum(num)
@@ -78,9 +78,3 @@ def get_sub_smarts(offmol, atom_indices: List[int] = [],
     smarts = Chem.MolToSmarts(rdmol)
     smarts = smarts.replace("#0", "*")
     return smarts
-
-
-# def get_sub_smarts(offmol, atom_indices, label_indices):
-#     from chemper.mol_toolkits.mol_toolkit import Mol
-    
-#     chmol = Mol(offmol.to_rdkit())

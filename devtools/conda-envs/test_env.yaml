@@ -16,6 +16,7 @@ dependencies:
   - nglview
   - numpy
   - openeye-toolkits
+  - openff-forcefields
   - openmm
   - pandas
   - pydantic

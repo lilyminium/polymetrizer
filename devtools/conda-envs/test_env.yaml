@@ -6,6 +6,7 @@ channels:
   - openeye
 
 dependencies:
+  - ambertools
   - bokeh
   - codecov
   - cython

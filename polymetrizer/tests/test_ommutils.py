@@ -29,7 +29,7 @@ def test_get_nonbonded_parameters(system_bta):
     first_charge = nb["LibraryCharges"][(0,)]
     assert list(first_charge.fields.keys()) == ["charge"]
     assert len(first_charge.fields["charge"]) == 1
-    assert_almost_equal(first_charge.fields["charge"][0]._value, -0.04028, decimal=5)
+    assert_almost_equal(first_charge.fields["charge"][0]._value, -0.0389, decimal=5)
 
     last_vdw = nb["vdW"][(13,)]
     assert sorted(last_vdw.fields.keys()) == ["epsilon", "sigma"]

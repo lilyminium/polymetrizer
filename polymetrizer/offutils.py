@@ -40,12 +40,19 @@ def get_bonds(offmol,
               ignore_neighbors: bool = True,
               bond_atom_numbers: Tuple[int, int] = (1, 2)) -> List[tuple]:
 
-    if pattern is None:
+    if not pattern:
         # SINGLE BONDS
         ATOM = "[!$(*#*)&!$(*=*)&A&!D1:{i}]"
         pattern = "-;!@".join([ATOM.format(i=i) for i in [4, 1, 2, 3]])
+        pattern = [pattern]
 
-    matches = offmol.chemical_environment_matches(pattern)
+    if not utils.isiterable(pattern):
+        pattern = [pattern]
+
+    matches = set()
+    for pat in pattern:
+        pat_matches = offmol.chemical_environment_matches(pat)
+        matches |= set(pat_matches)
     unique_bonds = set()
     unique_matches = set()  # avoid long chains
     seen = set()

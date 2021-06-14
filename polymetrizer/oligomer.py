@@ -217,7 +217,7 @@ class Oligomer:
             fragmenter = fragmenter()
         results = fragmenter.fragment(self.offmol)
         # fragments = []
-        central_atom_indices = set(self.central_atom_map)
+        central_atom_indices = set(self.central_atom_indices)
 
         # find fragments that overlap with central region
         fragment_indices = set()
@@ -231,23 +231,17 @@ class Oligomer:
         newmol, atom_indices = subset_offmol(self.offmol, atom_indices, check_bonds=True,
                                              return_atom_indices=True)
 
-        new_atom_map = {}
         new_oligomer_map = {}
 
         for new_index, old_index in enumerate(atom_indices):
-            try:
-                new_atom_map[new_index] = self.central_atom_map[old_index]
-            except KeyError:
-                pass
 
             try:
                 new_oligomer_map[new_index] = self.atom_oligomer_map[old_index]
             except KeyError:
                 pass
 
-        return type(self).from_offmolecule(newmol,
-                                           central_atom_map=new_atom_map,
-                                           atom_oligomer_map=new_oligomer_map)
+        return type(self)(newmol, central_atom_indices=atom_indices,
+                          atom_oligomer_map=new_oligomer_map)
 
     def get_monomer_atoms(self, indices, ordered=True):
         try:

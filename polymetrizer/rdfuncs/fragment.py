@@ -8,24 +8,27 @@ from openff.toolkit.topology import Molecule as OFFMolecule
 from . import utils
 
 
-def fragment_into_dummy_smiles(offmol, cleave_bonds=[]):
+def fragment_into_dummy_smiles(offmol, cleave_bonds=[], unique_r_groups=True):
     rdmol = Chem.RWMol(offmol.to_rdkit())
     for atom in rdmol.GetAtoms():
         atom.SetAtomMapNum(0)
     utils.assign_stereochemistry(rdmol)
     dummy = Chem.Atom("*")
     r_linkages = {}
-    counter = 1
-    for bond in cleave_bonds:
+
+    if unique_r_groups:
+        r_groups = [(i, i + 1) for i in range(1, (len(cleave_bonds) + 1) * 2, 2)]
+    else:
+        r_groups = [(1, 2)] * len(cleave_bonds)
+    for bond, rs in zip(cleave_bonds, r_groups):
         bond_type = rdmol.GetBondBetweenAtoms(*bond).GetBondType()
         rdmol.RemoveBond(*bond)
-        r_linkages[counter] = [counter + 1]
-        for atom_index in bond:
+        r_linkages[rs[0]] = [rs[1]]
+        for atom_index, r in zip(bond, rs):
             dummy_copy = Chem.Atom(dummy)
-            dummy_copy.SetAtomMapNum(counter)
+            dummy_copy.SetAtomMapNum(r)
             new_atom_index = rdmol.AddAtom(dummy_copy)
             rdmol.AddBond(atom_index, new_atom_index, bond_type)
-            counter += 1
     mols = Chem.GetMolFrags(rdmol, asMols=True)
     for mol in mols:
         counter = 1

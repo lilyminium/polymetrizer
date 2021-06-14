@@ -60,9 +60,9 @@ def get_bonds(offmol,
     i = bond_atom_numbers[0] - 1
     j = bond_atom_numbers[1] - 1
     for group in matches:
-        if group[i] > group[j]:
-            group = group[::-1]
         bond = (group[i], group[j])
+        if bond[0] > group[1]:
+            group = group[::-1]
         if bond not in unique_bonds:
             if not ignore_neighbors or not any(x in seen for x in group):
                 unique_bonds.add(bond)

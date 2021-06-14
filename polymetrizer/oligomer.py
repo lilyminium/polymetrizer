@@ -1,6 +1,7 @@
 from typing import Union, Dict, List, Tuple, Set
 import itertools
 import functools
+import copy
 from collections import defaultdict
 
 from openff.toolkit.topology import Molecule as OFFMolecule
@@ -92,6 +93,11 @@ class Oligomer:
         oligomer_map = tuple(sorted(self.atom_oligomer_map.items()))
         indices = tuple(sorted(self.central_atom_indices))
         return (indices, self.offmol.to_smiles(), oligomer_map)
+
+    def to_smiles(self, mapped=True):
+        molcopy = copy.deepcopy(self.offmol)
+        molcopy.properties["atom_map"] = {i: i + 1 for i in range(molcopy.n_atoms)}
+        return molcopy.to_smiles(mapped=mapped)
 
     def __hash__(self):
         return hash(self._get_immutable_attrs())
@@ -284,7 +290,10 @@ class Oligomer:
         atom2 = self.offmol.atoms[index2]
         return offutils.atoms_are_bonded(atom1, atom2)
 
-    def get_central_forcefield_parameters(self, forcefield, n_neighbors: int = 3):
+    def get_central_forcefield_parameters(self, forcefield, n_neighbors: int = 3, seen={}):
+        # key = hash(self)
+        # if key in seen:
+        #     return seen[key]
         handler_kwargs = self.get_forcefield_parameters(forcefield)
         relevant_indices = self.get_central_and_neighbor_indices(n_neighbors)
         return self.select_relevant_parameters(handler_kwargs, relevant_indices)

@@ -34,6 +34,7 @@ class Polymetrizer:
         smiles: str,
         bond_smirks_pattern: Optional[str] = offutils.DEFAULT_BOND_PATTERN,
         bond_atom_numbers: Tuple[int, int] = (1, 2),
+        unique_r_groups: bool = True,
         return_cleaved_bonds: bool = False,
         **kwargs,
     ):
@@ -67,6 +68,7 @@ class Polymetrizer:
         return cls.from_offmolecule(offmol,
                                     bond_smirks_pattern,
                                     bond_atom_numbers,
+                                    unique_r_groups,
                                     return_cleaved_bonds,
                                     **kwargs)
 
@@ -74,6 +76,7 @@ class Polymetrizer:
     def from_offmolecule(cls, offmol: OFFMolecule,
                          bond_smirks_pattern: Optional[str] = offutils.DEFAULT_BOND_PATTERN,
                          bond_atom_numbers: Tuple[int, int] = (1, 2),
+                         unique_r_groups: bool = True,
                          return_cleaved_bonds: bool = False,
                          **kwargs):
         """
@@ -106,14 +109,15 @@ class Polymetrizer:
                                    ignore_neighbors=True,
                                    bond_atom_numbers=bond_atom_numbers,
                                    get_bonds_only=True)
-        new = cls.from_offmolecule_and_bonds(offmol, bonds, **kwargs)
+        new = cls.from_offmolecule_and_bonds(offmol, bonds, unique_r_groups, **kwargs)
         if return_cleaved_bonds:
             return new, bonds
         return new
 
     @classmethod
-    def from_offmolecule_and_bonds(cls, offmol, bonds, **kwargs):
-        smiles, r_linkages = fragment_into_dummy_smiles(offmol, bonds)
+    def from_offmolecule_and_bonds(cls, offmol, bonds, unique_r_groups, **kwargs):
+        smiles, r_linkages = fragment_into_dummy_smiles(offmol, bonds,
+                                                        unique_r_groups=unique_r_groups)
         monomers = [Monomer(smi) for smi in smiles]
         return cls(monomers, r_linkages, **kwargs)
 
@@ -150,8 +154,9 @@ class Polymetrizer:
         
         self.default_caps = defaultdict(list)
         for monomer in default_caps:
+            monomer = Monomer(monomer)
             for num in monomer.r_group_indices:
-                for partner in self.r_linkages[num]:
+                for partner in self.caps_for_r_groups:
                     self.default_caps[partner].append((num, monomer))
 
 
@@ -183,8 +188,12 @@ class Polymetrizer:
                                   n_overlapping_atoms: int = 3):
         all_handler_kwargs = defaultdict(lambda: defaultdict(list))
 
+        seen_kwargs = {}
+
         for oligomer in self.oligomers:
-            central = oligomer.get_central_forcefield_parameters(forcefield, n_overlapping_atoms)
+            central = oligomer.get_central_forcefield_parameters(forcefield, n_overlapping_atoms, seen=seen_kwargs)
+            key = hash(oligomer)
+            seen_kwargs[key] = central
             for handler_name, parameters in central.items():
                 for monomer_atoms, params in parameters.items():
                     all_handler_kwargs[handler_name][monomer_atoms].extend(params)

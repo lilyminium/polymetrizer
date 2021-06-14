@@ -50,6 +50,7 @@ def get_torsion_parameters(force, oligomer=None, **kwargs):
         atoms = param[:4]
         # improper: first, third atoms are bonded
         if oligomer.atoms_are_bonded(atoms[0], atoms[2]):
+            atoms = [atoms[i] for i in [1, 0, 2, 3]]
             dest = impropers
         else:
             dest = propers

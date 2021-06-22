@@ -10,8 +10,6 @@ from . import utils
 
 def fragment_into_dummy_smiles(offmol, cleave_bonds=[], unique_r_groups=True):
     rdmol = Chem.RWMol(offmol.to_rdkit())
-    print(offmol.bonds)
-    print(cleave_bonds)
     for atom in rdmol.GetAtoms():
         atom.SetAtomMapNum(0)
     utils.assign_stereochemistry(rdmol)

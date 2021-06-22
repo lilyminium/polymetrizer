@@ -64,15 +64,15 @@ class SingleParameter:
         self.atom_indices = tuple(atom_indices)
         self.monomer_atoms = tuple(oligomer.atom_oligomer_map[i]
                                    for i in atom_indices)
-        self.monomers = []
-        seen = []
-        for atom in self.monomer_atoms:
-            if atom in seen:
-                self.monomers.append(atom.monomer)
-            else:
-                seen.append(atom)
-                if atom.monomer not in self.monomers:
-                    self.monomers.append(atom.monomer)
+        # self.monomers = []
+        # seen = []
+        # for atom in self.monomer_atoms:
+        #     if atom in seen:
+        #         self.monomers.append(atom.monomer)
+        #     else:
+        #         seen.append(atom)
+        #         if atom.monomer not in self.monomers:
+        #             self.monomers.append(atom.monomer)
         self.oligomer = oligomer
         self.parameter = parameter
         # TODO: terribly inefficient -- make a FrozenOligomer or something
@@ -97,23 +97,24 @@ class SingleParameter:
         elif context == "minimal":
             indices = list(self.atom_indices)
         elif context == "residue":
-            if len(self.monomers) == 1:  # easy case
-                idx = [a.index for a in self.monomer_atoms]
-                tmp = type(self)(idx, self.monomers[0], self.parameter)
-                return tmp.create_smirks(context="all", compressed=compressed)
+            # if len(self.monomers) == 1:  # easy case
+            #     idx = [a.index for a in self.monomer_atoms]
+            #     tmp = type(self)(idx, self.monomers[0], self.parameter)
+            #     return tmp.create_smirks(context="all", compressed=compressed)
             fragment_indices = get_fragment_indices(self.oligomer)
             indices = []
             for fragment in fragment_indices:
                 if any(i in fragment for i in self.atom_indices):
                     indices.extend(fragment)
 
-        return create_smirks(self.oligomer, atom_indices=indices,
+        smirks = create_smirks(self.oligomer, atom_indices=indices,
                              label_indices=self.atom_indices,
                              compressed=compressed)
-
-        smirks = create_labeled_smarts(self.oligomer.offmol,
-                                       indices, self.atom_indices)
         return smirks
+
+        # smirks = create_labeled_smarts(self.oligomer.offmol,
+        #                                indices, self.atom_indices)
+        # return smirks
 
     def is_compatible_with(self, other):
         if self.parameter.keys() != other.parameter.keys():

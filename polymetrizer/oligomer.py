@@ -1,6 +1,7 @@
 from typing import Union, Dict, List, Tuple, Set
 import itertools
 import functools
+import copy
 from collections import defaultdict
 
 from openff.toolkit.topology import Molecule as OFFMolecule
@@ -92,6 +93,11 @@ class Oligomer:
         oligomer_map = tuple(sorted(self.atom_oligomer_map.items()))
         indices = tuple(sorted(self.central_atom_indices))
         return (indices, self.offmol.to_smiles(), oligomer_map)
+
+    def to_smiles(self, mapped=True):
+        molcopy = copy.deepcopy(self.offmol)
+        molcopy.properties["atom_map"] = {i: i + 1 for i in range(molcopy.n_atoms)}
+        return molcopy.to_smiles(mapped=mapped)
 
     def __hash__(self):
         return hash(self._get_immutable_attrs())
@@ -217,7 +223,7 @@ class Oligomer:
             fragmenter = fragmenter()
         results = fragmenter.fragment(self.offmol)
         # fragments = []
-        central_atom_indices = set(self.central_atom_map)
+        central_atom_indices = set(self.central_atom_indices)
 
         # find fragments that overlap with central region
         fragment_indices = set()
@@ -231,23 +237,17 @@ class Oligomer:
         newmol, atom_indices = subset_offmol(self.offmol, atom_indices, check_bonds=True,
                                              return_atom_indices=True)
 
-        new_atom_map = {}
         new_oligomer_map = {}
 
         for new_index, old_index in enumerate(atom_indices):
-            try:
-                new_atom_map[new_index] = self.central_atom_map[old_index]
-            except KeyError:
-                pass
 
             try:
                 new_oligomer_map[new_index] = self.atom_oligomer_map[old_index]
             except KeyError:
                 pass
 
-        return type(self).from_offmolecule(newmol,
-                                           central_atom_map=new_atom_map,
-                                           atom_oligomer_map=new_oligomer_map)
+        return type(self)(newmol, central_atom_indices=atom_indices,
+                          atom_oligomer_map=new_oligomer_map)
 
     def get_monomer_atoms(self, indices, ordered=True):
         try:
@@ -290,7 +290,10 @@ class Oligomer:
         atom2 = self.offmol.atoms[index2]
         return offutils.atoms_are_bonded(atom1, atom2)
 
-    def get_central_forcefield_parameters(self, forcefield, n_neighbors: int = 3):
+    def get_central_forcefield_parameters(self, forcefield, n_neighbors: int = 3, seen={}):
+        # key = hash(self)
+        # if key in seen:
+        #     return seen[key]
         handler_kwargs = self.get_forcefield_parameters(forcefield)
         relevant_indices = self.get_central_and_neighbor_indices(n_neighbors)
         return self.select_relevant_parameters(handler_kwargs, relevant_indices)

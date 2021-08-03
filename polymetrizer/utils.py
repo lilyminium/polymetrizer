@@ -5,6 +5,8 @@ import itertools
 
 import numpy as np
 
+from .types import ParameterSetByAtomIndex
+
 
 def replace_R_with_dummy(smiles: str):
     smiles = re.sub(r"([\\/]*)\[R([0-9]+)]", r"\1[\2*:\2]", smiles)
@@ -25,48 +27,34 @@ def replace_dummy_with_wildcard(smiles: str):
     return re.sub(r"\[[0-9]*\*(:?[0-9]*)\]", r"[*\1]", smiles)
 
 
-def tuple_from_string(string):
-    string = string.strip().split('(')[1].split(')')[0]
-    fields = [s.strip() for s in string.split(',')]
-    return tuple(map(int, fields))
+def get_other_in_pair(self, value, pair):
+    assert len(pair) == 2
+    assert value in pair
+    if value == pair[0]:
+        return pair[1]
+    return pair[0]
 
 
-def average_dicts(dicts: List[Dict[str, Any]] = []):
-    if not dicts:
-        return {}
-    keys = set(dicts[0].keys())
-    assert all(set(d.keys()) == keys for d in dicts)
-    collector = defaultdict(list)
-    for dct in dicts:
-        for k, v in dct.items():
-            if not isinstance(v, str):
-                collector[k].append(v)
-    n_items = len(dicts)
-    return {k: np.sum(v, axis=0)/n_items for k, v in collector.items()}
+def filter_dictionary_by_indices(dictionary: ParameterSetByAtomIndex,
+                                 indices: List[int]):
+    filtered = {}
+    for ix, parameter in dictionary.items():
+        if np.all(np.isin(ix, indices)):
+            filtered[ix] = parameter
+    return filtered
 
 
-def concatenate_dicts(dicts):
-    keys = dicts[0].keys()
-    if not all(d.keys() == keys for d in dicts):
-        raise ValueError("All given dicts must have the same keys")
-    collector = defaultdict(list)
-    for k in keys:
-        for dct in dicts:
-            collector[k].append(dct[k])
-    return collector
+def is_iterable(obj: Any) -> bool:
+    """Returns ``True`` if `obj` can be iterated over and is *not* a string
+    nor a :class:`NamedStream`
+    .. note::
 
-
-def isiterable(obj):
-    """
-    Returns ``True`` if ``obj`` is iterable and not a string
-
-    Adapted from MDAnalysis.lib.util.iterable
+        This is adapted from MDAnalysis.lib.util.iterable.
+        It is GPL licensed.
     """
     if isinstance(obj, str):
         return False
-    if hasattr(obj, "next"):
-        return True
-    if isinstance(obj, itertools.repeat):
+    if hasattr(obj, "__next__") or hasattr(obj, "__iter__"):
         return True
     try:
         len(obj)

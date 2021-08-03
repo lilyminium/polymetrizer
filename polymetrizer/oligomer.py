@@ -1,422 +1,285 @@
-from typing import Union, Dict, List, Tuple, Set
 import itertools
-import functools
-import copy
 from collections import defaultdict
+from typing import Dict, Union, List, Optional, Set, Tuple
+from typing_extensions import Literal
 
-from openff.toolkit.topology import Molecule as OFFMolecule
+import networkx as nx
+import numpy as np
+from pydantic import Field, PrivateAttr
 
-from . import utils, offutils, ommutils
-from .smirker import SingleParameter
-
-try:
-    from .oefuncs import attach_substituent_and_label, subset_offmol
-except ImportError:
-    from .rdfuncs import attach_substituent_and_label, subset_offmol
-
-
-@functools.total_ordering
-class AtomWrapper:
-    def __init__(self, monomer: "Monomer", index: int):
-        self.monomer = monomer
-        self.index = index
-
-    @property
-    def offatom(self):
-        return self.monomer.offmol.atoms[self.index]
-
-    def __eq__(self, other):
-        return self.monomer is other.monomer and self.index == other.index
-
-    def __hash__(self):
-        return hash((self.monomer.offmol, self.index))
-
-    def __lt__(self, other):
-        self_values = (self.monomer, self.index)
-        other_values = (other.monomer, other.index)
-        return self_values < other_values
+from . import base, utils, ommutils
+from .graph import BaseMolecule, CapGraph
+from .types import ForceFieldParametersByAtomIndex, ForceFieldParametersByNode
+from .parameters import ForceFieldParameterSets
 
 
-@functools.total_ordering
-class Oligomer:
+class Cap(BaseMolecule):
 
-    """
-    Class to hold Oligomer information.
-    """
+    name: Optional[str] = None
+    graph: CapGraph = Field(default_factory=CapGraph)
+    compatible_rs: Optional[List[int]] = []
+    r: Optional[int] = None
 
-    @classmethod
-    def with_oligomer_index(cls, *args, index: int = 0, **kwargs):
-        new = cls(*args, **kwargs)
-        indices = [i for i in new.indices if new.offmol.atoms[i].atomic_number != 0]
-        new.atom_oligomer_map = {i: (index, j) for j, i in enumerate(indices)}
+    def __post_init__(self):
+        if self.r is None:
+            self.r = self.graph.graph[self.graph._node].get("isotope")
+
+    def get_compatible_rs(self, *oligomers,
+                          linkage_graph: Optional[nx.Graph] = None,
+                          ):
+        if self.compatible_rs:
+            return self.compatible_rs
+        if linkage_graph is not None and self.r is not None:
+            return list(linkage_graph.neighbors(self.r))
+        return list({r for o in oligomers for r in o.iter_r_group_numbers()})
+
+
+HYDROGEN = Cap.from_smiles("[R][H]", name="H")
+
+
+class Oligomer(BaseMolecule):
+
+    _constituent_monomers: Dict[str, List[int]]
+    _monomer_to_atom_nodes: Dict[int, Set[int]]
+    _atom_to_monomer_nodes: Dict[int, int]
+    _monomer_graph: nx.Graph
+
+    def __post_init__(self):
+        self._constituent_monomers = defaultdict(list)
+        self._monomer_to_atom_nodes = {}
+        self._atom_to_monomer_nodes = {}
+        self._monomer_graph = nx.Graph()
+
+    def _monomer_keyfunc(self):
+        return (sorted(self._constituent_monomers),
+                len(self._monomer_to_atom_nodes),
+                len(self.graph.graph.nodes))
+
+    def _is_fully_isomorphic(self, other):
+        return self.graph.is_isomorphic(other.graph,
+                                        match_isotope=True,
+                                        match_formal_charge=True,
+                                        match_is_aromatic=True,
+                                        match_bond_order=True,
+                                        match_monomer_name=True,
+                                        match_monomer_atoms=True,
+                                        )
+
+    def map_r_substituent_pairs(
+            self,
+            substituents: List["Monomer"],
+            linkage_graph: nx.Graph,
+    ) -> Dict[int, List[Tuple[int, "Monomer"]]]:
+        """
+        Return R-R combinations from a list of available substituent monomers
+        and graph of accepted linkages.
+
+        Parameters
+        ----------
+        substituents: list of Monomers
+            Available substituents
+        linkage_graph: networkx.Graph
+            Linkage graph
+
+        Returns
+        -------
+        dictionary of R-R combinations
+            The keys are the R-groups of self. The values are lists of
+            tuples, where each tuple is (R-group of monomer, Monomer).
+        """
+        r_to_monomer = defaultdict(set)
+        for sub in substituents:
+            for r in sub.iter_r_group_numbers():
+                r_to_monomer[r].add(sub)
+
+        cap_combinations = defaultdict(list)
+
+        for r in self.iter_r_group_numbers():
+            neighbors = linkage_graph.neighbors(r)
+            for n in neighbors:
+                for monomer in r_to_monomer[n]:
+                    cap_combinations[r].append((n, monomer))
+
+        return cap_combinations
+
+    def substitute(self, other: "Monomer",
+                   r_self: int, r_other: int,
+                   inplace: bool = False):
+        """Add ``other`` Monomer by joining at ``r_self``, ``r_other``."""
+        obj = self
+        if not inplace:
+            obj = obj.copy(deep=True)
+        return obj._substitute(other, r_self, r_other)
+
+    def _substitute(self, other, r_self, r_other):
+        # TODO: maybe pin to node instead of r?
+        new_nodes, new_edge = self.graph.add_with_r(other.graph, r_self, r_other)
+        self._record_monomer(other, new_atom_nodes=new_nodes,
+                             new_atom_edge=new_edge,
+                             #  r_groups=(r_self, r_other),
+                             )
+        return self
+
+    def _record_monomer(self, monomer, new_atom_nodes=set(),
+                        new_atom_edge: Optional[Tuple[int, int]] = None,
+                        # r_groups=Optional[Tuple[int, int]],
+                        ):
+        new_monomer_node = len(self.monomer_graph)
+        self._monomer_to_atom_nodes[new_monomer_node] = new_atom_nodes
+        for node in new_atom_nodes:
+            self._atom_to_monomer_nodes[node] = new_monomer_node
+        self._constituent_monomers[monomer.name].add(new_monomer_node)
+        self._monomer_graph.add_node(new_monomer_node, monomer_name=monomer.name)
+        if new_atom_edge:
+            old_atom_node, new_atom_node = new_atom_edge
+            if old_atom_node in new_atom_nodes:
+                new_atom_node, old_atom_node = new_atom_edge
+            old_monomer_node = self._atom_to_monomer_nodes[old_atom_node]
+            edge = (old_monomer_node, new_monomer_node)
+            atom_edge = (old_atom_node, new_atom_node)
+            names = (self._monomer_graph[old_monomer_node]["monomer_name"],
+                     self._monomer_graph[new_monomer_node]["monomer_name"],)
+            monomer_atoms = (self.graph[old_atom_node]["monomer_atom"],
+                             self.graph[new_atom_node]["monomer_atom"])
+            self._monomer_graph.add_edge(edge,
+                                         atom_nodes=atom_edge,
+                                         monomer_atoms=monomer_atoms,
+                                         monomer_nodes=edge,
+                                         monomer_names=names)
+
+    def with_substitutions(self, substitutions: List[dict]):
+        new = self.copy(deep=True)
+        for substitution in substitutions:
+            new._substitute(**substitution)
         return new
 
-    def __init__(
-        self,
-        offmol: OFFMolecule,
-        central_atom_indices: List[int] = [],
-        atom_oligomer_map: Dict[int, AtomWrapper] = {},
-        monomer_bonds: Set[Tuple[int, int]] = set(),
-    ):
-
-        if isinstance(offmol, Oligomer):
-            central_atom_indices = offmol.central_atom_indices
-            atom_oligomer_map = offmol.atom_oligomer_map
-            offmol = offmol.offmol
-
-        self.offmol = offmol
-        self.central_atom_indices = sorted(central_atom_indices)
-        self.atom_oligomer_map = dict(atom_oligomer_map)
-        self.r_group_indices = {}
-        self.monomer_bonds = set()
-
-        for bond in monomer_bonds:
-            if bond[0] > bond[1]:
-                bond = bond[::-1]
-            self.monomer_bonds.add(bond)
-
-        off_map = self.offmol.properties.get("atom_map", {})
-
-        for i, atom in enumerate(self.offmol.atoms):
-            if atom.atomic_number == 0:  # dummy
-                try:
-                    num = off_map[i]
-                except KeyError:
-                    msg = ("R groups must be labelled. "
-                           f"The atom at index {i} does not have a number, "
-                           "so it is ignored")
-                    raise ValueError(msg)  # TODO: convert to warning to support dummy atoms
-                else:
-                    self.r_group_indices[num] = i
-
-    def _get_immutable_attrs(self):
-        oligomer_map = tuple(sorted(self.atom_oligomer_map.items()))
-        indices = tuple(sorted(self.central_atom_indices))
-        return (indices, self.offmol.to_smiles(), oligomer_map)
-
-    def to_smiles(self, mapped=True):
-        molcopy = copy.deepcopy(self.offmol)
-        molcopy.properties["atom_map"] = {i: i + 1 for i in range(molcopy.n_atoms)}
-        return molcopy.to_smiles(mapped=mapped)
-
-    def __hash__(self):
-        return hash(self._get_immutable_attrs())
-
-    def __eq__(self, other):
-        return self._get_immutable_attrs() == other._get_immutable_attrs()
-
-    def __lt__(self, other):
-        self_values = (self.offmol.n_atoms, len(self.central_atom_indices), self.offmol.to_smiles())
-        other_values = (other.offmol.n_atoms, len(other.central_atom_indices), other.offmol.to_smiles())
-        return self_values < other_values
-
-    @property
-    def reverse_atom_oligomer_map(self):
-        return {v: k for k, v in self.atom_oligomer_map.items()}
-
-    @property
-    def reverse_r_group_indices(self):
-        return dict((v, k) for k, v in self.r_group_indices.items())
-
-    def get_applicable_caps(
-        self,
-        r_group_substituents: Dict[int, List[Tuple[int, "Oligomer"]]] = {},
-        ignore_r: int = 0,
-    ) -> List[Dict[int, Tuple[int, "Oligomer"]]]:
-        """
-        Get the applicable substituents for all R-groups, except
-        the ignored number.
-        """
-        r_nums = [r for r in self.r_group_indices if r != ignore_r]
-        # TODO: should I let this go through without fulfilling all Rs?
-        # keys, r_subs = [], []
-        r_subs = [r_group_substituents.get(r, []) for r in r_nums]
-        return [dict(zip(r_nums, x)) for x in itertools.product(*r_subs)]
-
-    def get_cap_combinations(
-        self,
-        r_group_substituents: Dict[int, List[Tuple[int, "Oligomer"]]] = {},
-    ) -> Dict[int, List[Dict[int, Tuple[int, "Oligomer"]]]]:
-        combinations = {}
-        for r in self.r_group_indices:
-            substituents = self.get_applicable_caps(r_group_substituents,
-                                                    ignore_r=r)
-            combinations[r] = substituents
+    def enumerate_substituent_combinations(
+            self,
+            substituents: List["Monomer"],
+            linkage_graph: nx.Graph,
+    ) -> List[List[dict]]:
+        caps = self.map_r_substituent_pairs(substituents, linkage_graph)
+        r_group_numbers = list(self.graph.iter_r_group_numbers())
+        sub_choices = [caps.get(r, []) for r in r_group_numbers]
+        combinations = [
+            [dict(other=other, r_self=r, r_other=r_other)
+             for r, (r_other, other) in zip(combination, r_group_numbers)]
+            for combination in itertools.product(*sub_choices)
+        ]
         return combinations
 
-    def get_central_and_neighbor_indices(self, n_neighbors: int = 3) -> List[int]:
-        seen = set(self.central_atom_indices)
-        layer = seen
-
-        while n_neighbors:
-            new_layer = set()
-            for i in layer:
-                for bond in self.offmol.atoms[i].bonds:
-                    j = offutils.get_other_bond_index(bond, i)
-                    if j not in seen and self.offmol.atoms[j].atomic_number != 0:
-                        new_layer.add(j)
-            layer = new_layer
-            seen |= layer
-            n_neighbors -= 1
-
-        return sorted(seen)
-
-    def attach_substituents(
-        self,
-        r_group_substituents: Dict[int, "Oligomer"] = {},
-    ) -> "Oligomer":
-        rct = Oligomer(self)
-        for rct_r, (sub_r, sub) in r_group_substituents.items():
-            expected_r_groups = {r for r in rct.r_group_indices if r != rct_r}
-            expected_r_groups |= {r for r in sub.r_group_indices if r != sub_r}
-            rct = attach_substituent_and_label(rct_r, sub_r, rct, sub)
-            # symmetry can cause issues
-            r_groups = set(rct.r_group_indices)
-            if r_groups != expected_r_groups:
-                try:
-                    old = (r_groups - expected_r_groups).pop()
-                    new = (expected_r_groups - r_groups).pop()
-                    rct.r_group_indices[new] = rct.r_group_indices.pop(old)
-                except KeyError:
-                    pass
-        return rct
-
-    def generate_substituted_caps(
-        self,
-        r_group_substituents: Dict[int, List[Tuple[int, "Oligomer"]]] = {},
-    ) -> Dict[int, "Oligomer"]:
-        combinations = self.get_cap_combinations(r_group_substituents)
-        substituted = defaultdict(list)
-        for num, groups in combinations.items():
-            for group in groups:
-                attached = self.attach_substituents(group)
-                substituted[num].append(attached)
-        return substituted
-
     def generate_substituted(
-        self,
-        r_group_substituents: Dict[int, List[Tuple[int, "Oligomer"]]] = {},
-    ) -> List["Oligomer"]:
-        combinations = self.get_applicable_caps(r_group_substituents)
-        substituted = []
-        for group in combinations:
-            substituted.append(self.attach_substituents(group))
-        return substituted
-
-    def build_all_combinations(
-        self,
-        r_group_substituents: Dict[int, List["Oligomer"]] = {},
-        repeat: int = 1,
+            self,
+            substituents: List["Monomer"],
+            linkage_graph: nx.Graph,
     ):
-        # TODO: pretty sure this logic is wrong for residues
-        # with multiple linkages
-        substituted = self.generate_substituted(r_group_substituents)
-        substituted = substituted[0]
+        groups = self.enumerate_substituent_combinations(substituents,
+                                                         linkage_graph)
+        return [self.with_substitutions(group) for group in groups]
 
-        while substituted.r_group_indices:
-            substituted = substituted.generate_substituted(r_group_substituents)
-            substituted = substituted[0]
-        return substituted
+    def enumerate_substituted_products(
+            self,
+            substituents: List["Monomer"],
+            caps: List["Cap"],
+            linkage_graph: nx.Graph,
+            n_substitutions: int = 1,
+    ):
+        products = [self]
+        for i in range(n_substitutions):
+            products = [x.generate_substituted(substituents, linkage_graph)
+                        for x in products]
+        cap_rs = [cap.get_compatible_rs(*products, linkage_graph=linkage_graph)
+                  for cap in caps]
+        for compound in products:
+            for cap, r_groups in zip(cap, cap_rs):
+                compound._cap_remaining(cap, r_groups)
+        return products
 
-    def fragment_around_central_atoms(self, fragmenter) -> "Oligomer":
-        if isinstance(fragmenter, type):
-            fragmenter = fragmenter()
-        results = fragmenter.fragment(self.offmol)
-        # fragments = []
-        central_atom_indices = set(self.central_atom_indices)
+    def cap_remaining(
+            self,
+            cap: Cap = HYDROGEN,
+            r_groups: List[int] = [],
+            inplace: bool = True,
+    ):
+        obj = self
+        if not inplace:
+            obj = obj.copy(deep=True)
+        obj._cap_remaining(cap, r_groups)
+        return obj
 
-        # find fragments that overlap with central region
-        fragment_indices = set()
-        for fragment in results.fragments:
-            mol = fragment.molecule
-            indices = set(i - 1 for i in mol.properties["atom_map"].values())
-            if indices.intersection(central_atom_indices):
-                fragment_indices |= indices
+    def _cap_remaining(self, cap, r_groups):
+        for r in self.graph.iter_r_group_numbers():
+            if r in r_groups:
+                self._substitute(cap, r, None)
+        return self
 
-        atom_indices = sorted(fragment_indices)
-        newmol, atom_indices = subset_offmol(self.offmol, atom_indices, check_bonds=True,
-                                             return_atom_indices=True)
+    def get_central_indices(
+            self,
+            n_neighbors: int = 0,
+    ) -> List[int]:
+        nodes = self.graph.get_central_nodes(n_neighbors=n_neighbors)
+        return np.where(np.isin(self.graph.nodes, nodes))[0]
 
-        new_oligomer_map = {}
+    def get_index_to_monomer_atom_mapping(self):
+        return {i: atom
+                for i, (node, atom) in enumerate(self.graph.nodes("monomer_atom"))
+                if atom is not None}
 
-        for new_index, old_index in enumerate(atom_indices):
+    def to_openff_parameterset(self, forcefield, n_neighbors: int = -1):
+        offmol = self.graph.to_openff()
+        system = forcefield.create_openmm_system(offmol.to_topology())
+        parameter_set = ommutils.parameter_set_from_openff_system(system)
+        if n_neighbors > 0:
+            indices = self.get_central_indices(n_neighbors=n_neighbors)
+            parameters.filter_keys(keep=indices)
+        # atom_mapping = self.get_index_to_monomer_atom_mapping()
+        # parameters.remap_keys(mapping=atom_mapping)
+        parameters.map_indices_to_graph(self.graph.graph)
+        return parameters
 
-            try:
-                new_oligomer_map[new_index] = self.atom_oligomer_map[old_index]
-            except KeyError:
-                pass
-
-        return type(self)(newmol, central_atom_indices=atom_indices,
-                          atom_oligomer_map=new_oligomer_map)
-
-    def get_monomer_atoms(self, indices, ordered=True):
-        try:
-            monomer_atoms = tuple(self.atom_oligomer_map[i] for i in indices)
-        except KeyError:
-            return
-        if ordered and monomer_atoms[0] > monomer_atoms[-1]:
-            monomer_atoms = monomer_atoms[::-1]
-        return monomer_atoms
-
-    def get_forcefield_parameters(self, forcefield):
-        system = forcefield.create_openmm_system(self.offmol.to_topology())
-        handler_kwargs = {}
-        for force in system.getForces():
-            try:
-                parser = ommutils.OPENMM_FORCE_PARSERS[type(force)]
-            except KeyError:
+    def monomer_atoms_to_smarts(
+            self, atom_graph: nx.Graph,
+            context: Literal["minimal", "central", "residue", "full"] = "full",
+            include_caps: bool = True,
+            enumerate_all: bool = True,
+            only_central: bool = False,
+    ):
+        # smarts = []
+        matcher = self.graph.create_graphmatcher(atom_graph,
+                                                 match_monomer_atoms=True)
+        for mapping in matcher.subgraph_isomorphisms_iter():
+            # self to other
+            subgraph = sorted(mapping.items(), key=lambda x: x[1]["index"])
+            nodes = [atom[0] for atom in subgraph]
+            if only_central and not any(self.graph.nodes[n].get("central")):
                 continue
-            handler_kwargs.update(parser(force, oligomer=self))
-        return handler_kwargs
+            sm = self.to_smarts(label_nodes=nodes,
+                                context=context,
+                                include_caps=include_caps)
+            return sm  # I think it's basically equivalent for all smarts?
 
-    def select_relevant_parameters(self, handler_kwargs, relevant_indices):
-        central_kwargs = {}
-        for handler_name, atomgroup_kwargs in handler_kwargs.items():
-            central_handler = defaultdict(list)
-            # central_handler = []
-            for indices, fields in atomgroup_kwargs.items():
-                if not all(i in relevant_indices for i in indices):
-                    continue
-                if not all(i in self.atom_oligomer_map for i in indices):
-                    continue
-                param = SingleParameter(indices, self, fields)
-                # central_handler.append(param)
-                central_handler[param.monomer_atoms].append(param)
-            central_kwargs[handler_name] = central_handler
-        return central_kwargs
-
-    def atoms_are_bonded(self, index1, index2):
-        atom1 = self.offmol.atoms[index1]
-        atom2 = self.offmol.atoms[index2]
-        return offutils.atoms_are_bonded(atom1, atom2)
-
-    def get_central_forcefield_parameters(self, forcefield, n_neighbors: int = 3, seen={}):
-        # key = hash(self)
-        # if key in seen:
-        #     return seen[key]
-        handler_kwargs = self.get_forcefield_parameters(forcefield)
-        relevant_indices = self.get_central_and_neighbor_indices(n_neighbors)
-        return self.select_relevant_parameters(handler_kwargs, relevant_indices)
-
-    def get_monomer_atomgroup_indices(self, monomer_atoms: List[AtomWrapper]):
-        atom_indices = [self.get_monomer_atom_indices(atom) for atom in monomer_atoms]
-        return itertools.product(*atom_indices)
-
-    def contains_monomer_atoms(
-        self,
-        monomer_atoms: List[AtomWrapper],
-        handler_name: str = None,
-        return_indices: bool = False,
+    def to_smarts(
+            self,
+            nodes: List[int] = [],
+            label_nodes: List[int] = [],
+            context: Literal["minimal", "central", "residue", "full"] = "full",
+            include_caps: bool = True,
+            **kwargs,
     ):
-        contained = set(self.atom_oligomer_map.values())
+        nodes = set(nodes) + set(label_nodes)
+        if context == "central":
+            nodes |= self.graph.get_central_nodes(n_neighbors=0)
+        elif context == "residue":
+            monomer_ints = {self._atom_to_monomer_nodes[i] for i in nodes}
+            nodes
+        elif context == "full":
+            nodes = self.graph.graph.nodes
+        if include_caps:
+            nodes |= self.graph.get_neighbor_caps(*nodes)
+        subgraph = self.graph.subgraph(nodes, cap_broken_bonds=True)
+        return subgraph.graph.to_smarts(label_nodes=label_nodes, **kwargs)
 
-        if not all(atom in contained for atom in monomer_atoms):
-            if return_indices:
-                return False, []
-            return False
-
-        if len(monomer_atoms) == 1:
-            if return_indices:
-                return True, [(i,) for i, v in self.atom_oligomer_map.items() if v == monomer_atoms[0]]
-            return True
-
-        atom_indices = sorted(map(tuple, self.get_monomer_atomgroup_indices(monomer_atoms)))
-        combinations = [[self.offmol.atoms[i] for i in ix] for ix in atom_indices]
-
-        def bond_check(atoms): return offutils.atoms_are_bonded(atoms[0], atoms[1])
-        def angle_check(atoms): return offutils.atoms_are_bonded(atoms[1], atoms[2])
-        def proper_check(atoms): return offutils.atoms_are_bonded(atoms[2], atoms[3])
-        def improper_check(atoms): return offutils.atoms_are_bonded(atoms[1], atoms[3])
-
-        n_monomer_atoms = len(monomer_atoms)
-
-        check_functions = [bond_check]
-        if n_monomer_atoms > 2:
-            check_functions.append(angle_check)
-        if n_monomer_atoms == 4:
-            if handler_name == "ImproperTorsions":
-                check_functions.append(improper_check)
-            else:
-                check_functions.append(proper_check)
-
-        valid_indices = []
-        for i, atoms in enumerate(combinations):
-            if all(check(atoms) for check in check_functions):
-                valid_indices.append(atom_indices[i])
-        if valid_indices:
-            if return_indices:
-                return True, valid_indices
-            return True
-
-        if return_indices:
-            return False, valid_indices
-        return False
-
-    def get_monomer_atom_indices(self, monomer_atom: AtomWrapper):
-        indices = []
-        for index, atom in self.atom_oligomer_map.items():
-            if atom == monomer_atom:
-                indices.append(index)
-        return sorted(indices)
-
-
-class Monomer(Oligomer):
-    """
-    An input monomer for the polymetrizer. This should have joining
-    points defined as R-groups or dummy atoms ("*") in a string;
-    each should be numbered.
-
-    Parameters
-    ----------
-    smiles_or_offmol: str, openff.toolkit.topology.Molecule, Oligomer
-        This should be either a SMILES string that can be converted
-        into a Molecule, a Molecule, or an existing Monomer or Oligomer.
-
-
-    Examples
-    --------
-
-    You can create a Monomer from R-group SMILES strings::
-
-        r_h1 = Monomer("[R1][H]")  # monomer with joining point numbered 1
-        r_h2 = Monomer("[R3][H]")  # monomer with joining point numbered 3
-        mol = Monomer(""C([R1])([R6])=N([R3])")  # monomer with joining points numbered 1, 6, 3
-
-    or dummy strings::
-
-        r_h1 = Monomer("[*:1][H]")  # monomer with joining point numbered 1
-        r_h2 = Monomer("[3*:3][H]")  # monomer with joining point numbered 3
-        mol = Monomer("C([*:1])([*:6])=N([*:3])")  # monomer with joining points numbered 1, 6, 3
-
-    or an existing OpenFF molecule::
-
-        from openff.toolkit.topology import Molecule
-        offmol = Molecule.from_smiles("C([*:1])([*:6])=N([*:3])")
-        mol = Monomer(offmol)
-
-    or an existing monomer or oligomer::
-
-        mol2 = Monomer(mol)
-
-    """
-
-    def __init__(
-        self,
-        smiles_or_offmol: Union[str, OFFMolecule, "Oligomer"],
-    ):
-        if isinstance(smiles_or_offmol, str):
-            smiles = utils.replace_R_with_dummy(smiles_or_offmol)
-            smiles_or_offmol = OFFMolecule.from_smiles(smiles, allow_undefined_stereo=True)
-        elif isinstance(smiles_or_offmol, Oligomer):
-            smiles_or_offmol = smiles_or_offmol.offmol
-        indices = [i for i, atom in enumerate(smiles_or_offmol.atoms)
-                   if atom.atomic_number != 0]
-        atom_oligomer_map = {j: AtomWrapper(self, j) for j in indices}
-        super().__init__(smiles_or_offmol, indices, atom_oligomer_map)
-
-
-HYDROGEN = Monomer("[R1][H]")
-
-
-def create_hydrogen_caps(r_group_numbers):
-    return {r: [(1, HYDROGEN)] for r in r_group_numbers}
+    def get_atom_node(self, atom):
+        for node, data in self.graph.graph.nodes(data=True):
+            if data.get("monomer_atom") == atom:
+                return node

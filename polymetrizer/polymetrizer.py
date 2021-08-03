@@ -1,340 +1,268 @@
-from typing import List, Dict, Optional, Set, Tuple
-from collections import defaultdict
-import warnings
+from typing import List, Dict, Set
+from typing_extensions import Literal
+import itertools
 
-# from openff.fragmenter.fragment import Fragmenter
-from openff.toolkit.topology import Molecule as OFFMolecule
-from openff.toolkit.typing.engines.smirnoff.forcefield import ForceField
+import networkx as nx
+from pydantic import PrivateAttr, validator
 
-from .oligomer import Monomer, create_hydrogen_caps, HYDROGEN
-from .smirker import Smirker
-from . import offutils
-
-try:
-    from .oefuncs import fragment_into_dummy_smiles
-except ImportError:
-    from .rdfuncs import fragment_into_dummy_smiles
+from . import base, utils
+from .monomer import Monomer, Cap, HYDROGEN
+from .oligomer import Oligomer
+from .parameters import ForceFieldParameterSets, ParameterSet
 
 
-class Polymetrizer:
-    """
-    Overall class for joining fragments of monomers together,
-    coming up with parameters, and creating a force field.
+class Polymetrizer(base.Model):
 
-    Parameters
-    ----------
-    monomers: list of Monomer objects
-    r_linkages:
-        dictionary of r-group linkages
-    """
+    monomers: Dict[str, Monomer] = []
+    caps: List[Cap] = [HYDROGEN]
+    r_linkage_graph: nx.Graph
+    _monomers: Dict[str, Monomer] = {}
+    _oligomers: List[Oligomer]
 
-    @classmethod
-    def from_molecule_smiles(
-        cls,
-        smiles: str,
-        bond_smirks_pattern: Optional[str] = offutils.DEFAULT_BOND_PATTERN,
-        bond_atom_numbers: Tuple[int, int] = (1, 2),
-        unique_r_groups: bool = True,
-        return_cleaved_bonds: bool = False,
-        **kwargs,
+    @validator("r_linkage_graph")
+    def validate_r_linkages(cls, v):
+        if isinstance(v, nx.Graph):
+            return v
+        graph = nx.Graph()
+        for r, other_rs in v.items():
+            for r2 in other_rs:
+                graph.add_edge((r, r2))
+        return graph
+
+    @validator("monomers")
+    def validate_monomers(cls, v):
+        if isinstance(v, dict):
+            validated = {}
+            for name, monomer in v.items():
+                if name != monomer.name:
+                    monomer = monomer.copy(deep=True)
+                    monomer.name = name
+                validated[name] = monomer
+                return validated
+        return {m.name: m for m in v}
+
+    def __post_init__(self):
+        self._monomers = {}
+        for monomer in self.monomers:
+            self._monomers[monomer.name] = monomer
+
+    def add_r_group_linkage(self, r1, r2):
+        self._r_linkage_graph.add_edge(r1, r2)
+
+    def remove_r_group_linkage(self, r1, r2):
+        self._linkage_graph.remove_edge(r1, r2)
+
+    def enumerate_oligomers(self, n_neighbor_monomers: int = 1,
+                            prune_isomorphs: bool = True):
+        products = []
+        for monomer in self.monomers.values():
+            og = monomer.to_oligomer()
+            products.extend(
+                og.enumerate_substituted_products(substituents=self.monomers,
+                                                  caps=self.caps,
+                                                  linkage_graph=self._r_linkage_graph,
+                                                  n_substitutions=n_neighbor_monomers)
+            )
+        self._oligomers = products
+        if prune_isomorphs:
+            self.prune_isomorphic_oligomers()
+
+    def prune_isomorphic_oligomers(self):
+        oligomers = sorted(self._oligomers, key=Oligomer._monomer_keyfunc)
+        all_unique = []
+        for _, group in itertools.groupby(oligomers, key=Oligomer._monomer_keyfunc):
+            group = list(group)
+            unique = [group.pop(0)]
+            for omer in group:
+                if not any(omer._is_fully_isomorphic(unq) for unq in unique):
+                    unique.append(omer)
+            all_unique.extend(unique)
+        self._oligomers = all_unique
+
+    def generate_openff_parameters(self, forcefield,
+                                   n_neighbors: int = 3):
+        parameters = ForceFieldParameterSets()
+        for oligomer in self._oligomers:
+            parameters += oligomer.to_openff_parameterset(forcefield,
+                                                          n_neighbors=n_neighbors)
+        return parameters
+
+    def get_atom_monomers(self, atoms=[]):
+        return [self.monomers[a.monomer_name] for a in atoms]
+
+    def generate_smarts(
+            self, atom_graph,
+            context: Literal["minimal", "residue", "full"] = "residue",
+            include_caps: bool = True,
+            enumerate_all: bool = False,
     ):
-        """
-        Create a Polymetrizer from an OpenFF toolkit Molecule
-        by breaking bonds
+        monomers = self.get_atom_monomers(atom_graph)
+        if len(set(monomers)) == 1 and context != "full":
+            # intra-molecular
+            monomer = monomers[0]
+            smarts = monomer.to_smarts(atom_graph, context=context,
+                                       include_caps=include_caps,
+                                       enumerate_all=enumerate_all)
+            return smarts
+        # check for oligomers with matching graphs
+        # if minimal or residue, just one will do
+        monomer_names = set(m.name for m in monomers)
+        all_smarts = []
+        all_monomer_names = []
+        for omer in self.oligomers:
+            # avoid as much graph matching as possible
+            if all(m in omer._constituent_monomers for m in monomer_names):
+                smarts = omer.monomer_atoms_to_smarts(atom_graph, context=context,
+                                                      include_caps=include_caps,
+                                                      enumerate_all=enumerate_all,)
+                if smarts and context != "full":
+                    return smarts
+                all_smarts.append(smarts)
+        return all_smarts
 
-        Parameters
-        ----------
-        smiles: str
-            SMILES pattern
-        bond_smirks_pattern: str (optional)
-            The bond smirks pattern to detect bonds for
-            cleaving. If not given, it will default to a
-            pattern of three single bonds over four non-aromatic atoms,
-            where the middle bond is cleaved.
-        bond_atom_numbers: tuple of ints
-            The atom mapping numbers for the bond to cleave. e.g.
-            in the default bond smirks pattern, the atom mapping
-            numbers for a linear chain of four atoms are
-            (4, 1, 2, 3). Specifying ``bond_atom_numbers=(1, 2)``
-            cleaves the bond between atom 1 and atom 2.
-        return_cleaved_bonds: bool (optional)
-            Whether to return the atom indices of the cleaved bonds
+    def build_openff_residue_forcefield(self, forcefield,
+                                        n_neighbors: int = 3,
+                                        include_caps: bool = True,
+                                        average_same_smarts: bool = True,
+                                        split_smarts_into_full: bool = True):
+        parameters = self.generate_openff_parameters(forcefield,
+                                                     n_neighbors=n_neighbors)
+        averaged = parameters.average_over_keys()
+        new = type(forcefield)()
 
-        Returns
-        -------
-        Polymetrizer (, list of tuple of ints)
-        """
-        offmol = offutils.mol_from_smiles(smiles)
-        return cls.from_offmolecule(offmol,
-                                    bond_smirks_pattern,
-                                    bond_atom_numbers,
-                                    unique_r_groups,
-                                    return_cleaved_bonds,
-                                    **kwargs)
+        smartsify = functools.partial(self.generate_unique_smarts,
+                                      average=average_same_smarts,
+                                      split_into_full=split_smarts_into_full)
 
-    @classmethod
-    def from_offmolecule(cls, offmol: OFFMolecule,
-                         bond_smirks_pattern: Optional[str] = offutils.DEFAULT_BOND_PATTERN,
-                         bond_atom_numbers: Tuple[int, int] = (1, 2),
-                         unique_r_groups: bool = True,
-                         return_cleaved_bonds: bool = False,
-                         **kwargs):
-        """
-        Create a Polymetrizer from an OpenFF toolkit Molecule
-        by breaking bonds
-
-        Parameters
-        ----------
-        offmol: openff.toolkit.topology.Molecule
-        bond_smirks_pattern: str (optional)
-            The bond smirks pattern to detect bonds for
-            cleaving. If not given, it will default to a
-            pattern of three single bonds over four non-aromatic atoms,
-            where the middle bond is cleaved.
-        bond_atom_numbers: tuple of ints
-            The atom mapping numbers for the bond to cleave. e.g.
-            in the default bond smirks pattern, the atom mapping
-            numbers for a linear chain of four atoms are
-            (4, 1, 2, 3). Specifying ``bond_atom_numbers=(1, 2)``
-            cleaves the bond between atom 1 and atom 2.
-        return_cleaved_bonds: bool (optional)
-            Whether to return the atom indices of the cleaved bonds
-
-        Returns
-        -------
-        Polymetrizer (, list of tuple of ints)
-        """
-        bonds = offutils.get_bonds(offmol,
-                                   pattern=bond_smirks_pattern,
-                                   ignore_neighbors=True,
-                                   bond_atom_numbers=bond_atom_numbers,
-                                   get_bonds_only=True)
-        new = cls.from_offmolecule_and_bonds(offmol, bonds, unique_r_groups, **kwargs)
-        if return_cleaved_bonds:
-            return new, bonds
+        for parameter_name, parameter_set in averaged.items():
+            handler = forcefield.get_parameter_handler(parameter_name)
+            if parameter_name in ("LibraryCharges",):
+                # smarts_set = smartsify(parameter_set, context="full")
+                smarts_to_parameter = self.generate_combined_residue_smarts(parameter_set,
+                                                                            include_caps=include_caps)
+            else:
+                smarts_to_parameter = smartsify(parameter_set, context="residue")
+            for i, (smarts, parameter) in enumerate(smarts_to_parameter.items(), 1):
+                pid = parameter.pop("id", None)
+                if pid is not None:
+                    parameter["id"] = f"{pid}{i}"
+                handler.add_parameter(dict(smirks=smarts, **parameter))
         return new
 
-    @classmethod
-    def from_offmolecule_and_bonds(cls, offmol, bonds, unique_r_groups, **kwargs):
-        smiles, r_linkages = fragment_into_dummy_smiles(offmol, bonds,
-                                                        unique_r_groups=unique_r_groups)
-        monomers = [Monomer(smi) for smi in smiles]
-        return cls(monomers, r_linkages, **kwargs)
+    def generate_combined_residue_smarts(self, parameter_set,
+                                         include_caps: bool = True,):
+        # currently only valid for single atom parameters
+        graphs = list(parameter_set)
+        assert all(len(graph) == 1 for graph in graphs)
 
-    def __init__(self, monomers: List[Monomer] = [],
-                 r_linkages: Dict[int, Set[int]] = {},
-                 default_caps=None):
-        self.monomers = [Monomer(m) for m in monomers]
+        monomer_atoms = defaultdict(list)
+        monomer_parameters = defaultdict(lambda: defaultdict(list))
+        for atom_graph in graphs:
+            atom = list(atom_graph)[0]
+            monomer = self.monomer[atom.monomer_name]
+            monomer_atoms[monomer].append(atom)
 
-        # if no r_linkages, just set self-to-self
-        if not r_linkages:
-            r_linkages = {}
-            for monomer in self.monomers:
-                for num in monomer.r_group_indices:
-                    r_linkages[num] = {num}
+        monomer_parameters = {}
+        for monomer, atoms in monomer_atoms.items():
+            nodes = []
+            combined_parameter = defaultdict(list)
+            for atom in atoms:
+                nodes.append(monomer.get_atom_node(atom))
+                parameter = parameter_set[atom]
+                for k, v in parameter.items():
+                    if utils.is_iterable(v):
+                        combined_parameter[k].extend(v)
+                    else:
+                        combined_parameter[k].append(v)
+            smarts = monomer.to_smarts(label_nodes=nodes, context="residue",
+                                       include_caps=include_caps)
+            combined_parameter["id"] = monomer.name
+            monomer_parameters[smarts] = combined_parameter
+        return monomer_parameters
 
-        # symmetrize links
-        self.r_linkages = defaultdict(set)
-        for num, partners in r_linkages.items():
-            self.r_linkages[num] |= set(partners)
-            for partner in partners:
-                self.r_linkages[partner].add(num)
+    def generate_unique_smarts(self, parameter_set, context="residue",
+                               include_caps: bool = True,
+                               average=False,
+                               split_into_full: bool = True):
 
-        self.caps_for_r_groups = defaultdict(list)
-        for monomer in self.monomers:
-            for num in monomer.r_group_indices:
-                for partner in self.r_linkages[num]:
-                    self.caps_for_r_groups[partner].append((num, monomer))
+        def atom_graph_to_id(graph):
+            monomer_names = {x.capitalize()
+                             for i, x in graph.nodes("monomer_name")}
+            return "".join(sorted(monomer_names))
 
-        self.monomer_oligomers = defaultdict(list)
-        self.oligomers = []
+        smarts_to_parameter = defaultdict(list)
+        smarts_to_atomgraph = defaultdict(list)
 
-        if default_caps is None:
-            default_caps = [HYDROGEN]
-        
-        self.default_caps = defaultdict(list)
-        for monomer in default_caps:
-            monomer = Monomer(monomer)
-            for num in monomer.r_group_indices:
-                for partner in self.caps_for_r_groups:
-                    self.default_caps[partner].append((num, monomer))
+        for atom_graph, parameter in parameter_set.items():
+            smarts = self.generate_smarts(atom_graph, context=context,
+                                          include_caps=include_caps)
+            smarts_to_parameter[smarts].append(parameter)
+            smarts_to_atomgraph[smarts].append(atom_graph)
 
+        smarts_to_unique = {}
+        for key, values in smarts_to_parameter.items():
+            unique = []
+            for v in values:
+                if v not in unique:
+                    unique.append(v)
+            smarts_to_unique[key] = unique
 
-    def create_oligomers(self, n_neighbor_monomers: int = 1,
-                         fragmenter=None):
-        # TODO: is Hs the best way to go?
+        unified = {}
+        for smarts, parameters in smarts_to_unique.items():
+            if len(parameters) == 1:
+                # is unique, move on
+                graph = smarts_to_atomgraph[smarts][0]
+                parameter["id"] = atom_graph_to_id(graph)
+                unified[smarts] = parameter
+            else:
+                atom_graphs = smarts_to_atomgraph[smarts]
+                full_smarts = defaultdict(list)
+                # try getting the full SMARTS pattern first
+                for ag in atom_graphs:
+                    fulls = self.generate_smarts(ag, context="full",
+                                                 include_caps=include_caps)
+                    for full in fulls:
+                        if full not in full_smarts:
+                            break
 
-        caps = self.default_caps
+                    parameter = parameter_set[atom_graph]
+                    parameter["id"] = atom_graph_to_id(ag)
+                    full_smarts[full].append(parameter)
 
-        while n_neighbor_monomers:
-            new_caps = defaultdict(list)
-            for monomer in self.monomers:
-                substituted = monomer.generate_substituted_caps(caps)
-                for root_r, monomer_list in substituted.items():
-                    for partner in self.r_linkages[root_r]:
-                        new_caps[partner].extend([(root_r, x) for x in monomer_list])
-            caps = new_caps
-            n_neighbor_monomers -= 1
+                # there may be duplicates here too?
+                for k, vs in full_smarts.items():
+                    if len(vs) == 1 and k not in unified:
+                        unified[k] = vs[0]
+                    else:
+                        options = vs
+                        if k in unified:
+                            options.append(unified[k])
+                        if average:
+                            pset = ParameterSet(None)
+                            pset.add_parameters({k: options})
+                            unified[k] = pset.average_over_keys(drop=["id"])
+                            unified[k]["id"] = options[0]["id"]
+                        else:
+                            err = ("Cannot unify different parameters "
+                                   f"for same SMARTS: {k} and "
+                                   f"parameters {options}. Try setting "
+                                   "average=True")
+                            raise ValueError(err)
+        return unified
 
-        for monomer in self.monomers:
-            capped_monomers = monomer.generate_substituted(caps)
-            self.monomer_oligomers[monomer].extend(capped_monomers)
-            if fragmenter is not None:
-                capped_monomers = [x.fragment_around_central_atoms(fragmenter)
-                                   for x in capped_monomers]
-            self.oligomers.extend(capped_monomers)
-
-    def get_forcefield_parameters(self, forcefield: ForceField,
-                                  n_overlapping_atoms: int = 3):
-        all_handler_kwargs = defaultdict(lambda: defaultdict(list))
-
-        seen_kwargs = {}
-
-        for oligomer in self.oligomers:
-            central = oligomer.get_central_forcefield_parameters(forcefield, n_overlapping_atoms, seen=seen_kwargs)
-            key = hash(oligomer)
-            seen_kwargs[key] = central
-            for handler_name, parameters in central.items():
-                for monomer_atoms, params in parameters.items():
-                    all_handler_kwargs[handler_name][monomer_atoms].extend(params)
-        return all_handler_kwargs
-
-    def build_residue_forcefield(self, forcefield: ForceField,
-                                 all_handler_kwargs: Dict[str, dict],
-                                 compressed: bool = True) -> ForceField:
-
-        for handler_name, handler_kwargs in all_handler_kwargs.items():
-            handler = forcefield.get_parameter_handler(handler_name)
-            if handler._INFOTYPE is None:
-                warnings.warn(f"{handler_name} has no INFOTYPE so I don't know how to add params")
-                continue
-
-            # TODO: hierarchical smarts
-            smirker = Smirker(handler_kwargs)
-            if handler_name in ("LibraryCharges",):
-                for monomer in self.monomers:
-                    param = smirker.get_combined_smirks_parameter(monomer,
-                                                                  compressed=compressed)
-                    try:
-                        handler.add_parameter(param)
-                    except:  # TODO: figure out the error
-                        pass
-                continue
-
-            unified_smirks = smirker.get_unified_smirks_parameters(context="residue",
-                                                                   compressed=compressed)
-            for smirks, group_parameter in unified_smirks.items():
-                param = dict(smirks=smirks, **group_parameter.mean_parameter.fields)
-                handler.add_parameter(param)
-
-        return forcefield
-
-    def build_combination_forcefield(self, forcefield: ForceField,
-                                     all_handler_kwargs: Dict[str, dict],
-                                     compressed: bool = True) -> ForceField:
-        combinations = []
-        for monomer in self.monomers:
-            built = monomer.build_all_combinations(self.caps_for_r_groups)
-            combinations.append(built)
-
-        for handler_name, handler_kwargs in all_handler_kwargs.items():
-            handler = forcefield.get_parameter_handler(handler_name)
-            if handler._INFOTYPE is None:
-                warnings.warn(f"{handler_name} has no INFOTYPE so I don't know how to add params")
-                continue
-
-            smirker = Smirker(handler_kwargs)
-
-            if handler_name in ("LibraryCharges",):
-                for oligomer in combinations:
-                    param = smirker.get_combined_smirks_parameter(oligomer, compressed=compressed)
-                    try:
-                        handler.add_parameter(param)
-                    except:  # TODO: figure out the error
-                        pass
-                continue
-            for oligomer in combinations:
-                unified_smirks = smirker.get_smirks_for_oligomer(oligomer, compressed=compressed)
-                for smirks, group_parameter in unified_smirks.items():
-                    param = dict(smirks=smirks, **group_parameter.mean_parameter.fields)
-                    try:
-                        handler.add_parameter(param)
-                    except:  # TODO: figure out error
-                        pass
-        return forcefield
-
-    def _build_forcefield(self, forcefield_parameters, residue_based=True):
-        forcefield_parameters = dict(**forcefield_parameters)
-        new_ff = ForceField()
-        if residue_based:
-            if residue_based is True:
-                residue_based = list(forcefield_parameters.keys())
-            specific_kwargs = {}
-            for k in residue_based:
-                specific_kwargs[k] = forcefield_parameters.pop(k, {})
-            self.build_residue_forcefield(new_ff, specific_kwargs)
-        if forcefield_parameters:
-            self.build_combination_forcefield(new_ff, forcefield_parameters)
-        return new_ff
-
-    def build_forcefield(self, forcefield: ForceField,
-                         n_overlapping_atoms: int = 3,
-                         residue_based: bool = True):
-        parameters = self.get_forcefield_parameters(forcefield, n_overlapping_atoms)
-        return self._build_forcefield(parameters, residue_based)
-
-    def polymetrize(self, forcefield: ForceField,
+    def polymetrize(self, forcefield,
                     n_neighbor_monomers: int = 1,
                     n_overlapping_atoms: int = 3,
-                    fragmenter=None,
-                    residue_based: bool = True) -> ForceField:
-        """
-        Overall function for adding parameters to a forcefield.
-
-        Parameters
-        ----------
-        forcefield: openff.toolkit.typing.engines.smirnoff.forcefield.ForceField
-            Initial force field to pull parameters from
-        n_neighbor_monomers: int
-            Number of monomers to attach to each R-group point to build
-            an Oligomer. If a monomer has two R-group points, and
-            ``n_neighbor_monomers=1``, the resulting Oligomers will
-            be built to include three monomers (1 for each attachment to the
-            central monomer)
-        n_overlapping_atoms: int
-            Initial parameters are obtained for each oligomer from the
-            ``forcefield``. Oligomers are built by joining Monomers together.
-            When parameters are collected for the final forcefield, this
-            parameter controls how many bonds out from each residue
-            constitutes the "overlap" region where parameters are averaged
-            between Oligomers.
-        fragmenter: Fragmenter (optional)
-            If provided, each Oligomer is fragmented around the central
-            residue before parametrizing. This can speed things up for further
-            post-processing work, e.g. torsional scans
-        residue_based: bool or iterable of strings
-            This controls the smirks patterns in the output force field.
-            If ``True``, all smirks patterns are given as labeled atoms in
-            an individual residue, or joined residues if it is multi-atom and
-            spans residues. If ``False``, the Polymetrizer
-            uses the given ``r_linkages`` to create combinatorial Oligomers
-            that represent all possible configurations for more defined smirks.
-            The downside of this approach is that substructure matching consumes
-            significantly more memory. If given an iterable of strings, only
-            the passed parameter names will be given the residue treatment,
-            while all remaining parameters will be given the combinatorial
-            treatment. e.g. if passing ``residue_based=("vdW",)`` then
-            vdW smirks patterns will be created per-residue, but LibraryCharge
-            smirks patterns will be created per-combinatorial Oligomer. Note that
-            the combinatorial Oligomers need to terminate. This works best for
-            Polymetrizers created with ``from_offmolecule`` or
-            ``from_molecule_smiles`` where the original molecule will be returned.
-
-        Returns
-        -------
-        ForceField
-        """
-        self.create_oligomers(n_neighbor_monomers,
-                              fragmenter=fragmenter)
-        return self.build_forcefield(forcefield, n_overlapping_atoms,
-                                     residue_based=residue_based)
+                    prune_isomorphs: bool = True,
+                    include_caps: bool = True,
+                    average_same_smarts: bool = True,
+                    split_smarts_into_full: bool = True,
+                    ):
+        self.enumerate_oligomers(n_neighbor_monomers=n_neighbors,
+                                 prune_isomorphs=prune_isomorphs)
+        ff = self.build_openff_residue_forcefield(forcefield,
+                                                  n_neighbors=n_overlapping_atoms,
+                                                  include_caps=include_caps,
+                                                  average_same_smarts=average_same_smarts,
+                                                  split_smarts_into_full=split_smarts_into_full)
+        return ff

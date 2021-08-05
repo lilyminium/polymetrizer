@@ -58,6 +58,15 @@ class BaseMolecule(base.Model):
     def monomer_atoms(self):
         return self.graph.monomer_atoms
 
+    def to_openff(self):
+        return self.graph.to_openff()
+
+    def to_rdkit(self):
+        return self.graph.to_rdkit()
+
+    def to_smiles(self):
+        return self.graph.to_smiles()
+
     def __len__(self):
         return len(self.graph)
 

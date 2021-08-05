@@ -272,8 +272,8 @@ class SmirkSet:
         atoms_to_parameters = {}
         for graph, parameter in parameter_set.items():
             atom = graph.monomer_atoms[0]
-            if atom.cap and not self.include_caps:
-                continue
+            # if atom.cap and not self.include_caps:
+            #     continue
             atoms_to_parameters[atom] = parameter
 
         all_atoms = frozenset(atoms_to_parameters)
@@ -281,18 +281,26 @@ class SmirkSet:
         combined = {}
 
         for atoms, cpd in self.compounds.items():
-            if atoms.issubset(all_atoms):
-                nodes = []
+            if self.include_caps:
+                central_nodes = {i for i, n in cpd.graph_.nodes("atomic_number") if n}
+            else:
+                central_nodes = cpd.graph.get_central_nodes(exclude_dummy_atoms=True)
+            central_atoms = [cpd.graph_.nodes[n]["monomer_atom"] for n in central_nodes]
+            for atom in central_atoms:
+                if atom not in atoms_to_parameters:
+                    print(atom)
+            if all(atom in atoms_to_parameters for atom in central_atoms):
                 parameter = defaultdict(list)
-                for atom in atoms:
-                    nodes.append(cpd.get_atom_node(atom))
+                # for atom in atoms:
+                #     nodes.append(cpd.get_atom_node(atom))
+                for node, atom in zip(central_nodes, central_atoms):
                     for k, v in atoms_to_parameters[atom].items():
                         if utils.is_iterable(v):
                             parameter[k].extend(v)
                         else:
                             parameter[k].append(v)
-                smarts = cpd.to_smarts(label_nodes=nodes, context=self.context,
+                smarts = cpd.to_smarts(label_nodes=central_nodes, context=self.context,
                                        include_caps=self.include_caps)
-                parameter["id"] = cpd.nodes_to_monomer_id(nodes)
+                parameter["id"] = cpd.nodes_to_monomer_id(central_nodes)
                 combined[smarts] = parameter
         return combined

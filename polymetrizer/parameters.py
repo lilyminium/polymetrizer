@@ -21,6 +21,18 @@ class ParameterSet:
     def __len__(self):
         return len(self._all_parameters)
 
+    def __contains__(self, item):
+        return item in self._all_parameters
+
+    def keys(self):
+        return self._all_parameters.keys()
+
+    def values(self):
+        return self._all_parameters.values()
+
+    def items(self):
+        return self._all_parameters.items()
+
     def add_parameters(self, parameter_set: Dict[tuple, Dict[str, Any]]):
         if isinstance(parameter_set, type(self)):
             parameter_set = parameter_set._all_parameters
@@ -121,7 +133,7 @@ class ForceFieldParameterSets:
     def from_openff_molecule(cls, molecule, forcefield,
                              partial_charge_method: str = "am1bcc",
                              minimize_geometry: bool = True,
-                             optimize_geometry: bool = True,
+                             optimize_geometry: bool = False,
                              minimize_max_iter: int = 1000,
                              optimize_method: str = "m06-2x/def2-TZVP",
                              ):
@@ -139,6 +151,24 @@ class ForceFieldParameterSets:
             pset = ParameterSet(name=k)
             pset.add_parameters(v)
             self.parameter_sets[k] = pset
+
+    def __len__(self):
+        return len(self.parameter_sets)
+
+    def __contains__(self, item):
+        return item in self.parameter_sets
+
+    def keys(self):
+        return self.parameter_sets.keys()
+
+    def values(self):
+        return self.parameter_sets.values()
+
+    def items(self):
+        return self.parameter_sets.items()
+
+    def __getitem__(self, item):
+        return self.parameter_sets[item]
 
     def add_parameter_set(self, values, name=None):
         if isinstance(values, ParameterSet):

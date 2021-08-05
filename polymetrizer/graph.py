@@ -1,6 +1,7 @@
 from typing import List, Set, Optional, Any
 import itertools
 import functools
+import warnings
 from collections import defaultdict
 
 from rdkit import Chem
@@ -93,6 +94,9 @@ class AtomGraph(HashableGraph):
     @property
     def indices(self):
         return [self.graph_.nodes[node]["index"] for node in self.nodes]
+
+    def contains_cap(self):
+        return any([x.cap for x in self.monomer_atoms])
 
 
 class MolecularGraph(HashableGraph):
@@ -214,8 +218,9 @@ class MolecularGraph(HashableGraph):
         for pair in itertools.product(self_neighbors, other_neighbors):
             (a, a_data), (b, b_data) = pair
             if a_data != b_data:
+                warnings.warn(f"Bonds not compatible: {a_data} vs {b_data}")
                 # TODO: should this error or warn?
-                raise ValueError(f"Bonds not compatible: {a_data} vs {b_data}")
+                # raise ValueError(f"Bonds not compatible: {a_data} vs {b_data}")
             self.graph_.add_edge(a, b, **a_data)
         new_nodes = set(self.graph_)
         return new_nodes - old_nodes, (a, b)
@@ -282,11 +287,16 @@ class MolecularGraph(HashableGraph):
     def get_central_nodes(
             self,
             n_neighbors: int = 0,
+            exclude_dummy_atoms: bool = True,
     ) -> Set[int]:
         nodes = {k for k, v in self.graph_.nodes("central") if v}
-        layer = nodes
+        if exclude_dummy_atoms:
+            nodes = {k for k in nodes if self.graph_.nodes[k]["atomic_number"]}
+        layer = nodes.copy()
         for i in range(n_neighbors):
             layer = self.neighbors(*layer) - layer
+            if exclude_dummy_atoms:
+                layer = {k for k in layer if self.graph_.nodes[k]["atomic_number"]}
             nodes |= layer
         return nodes
 

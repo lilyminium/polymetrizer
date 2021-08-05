@@ -111,6 +111,11 @@ class Oligomer(BaseMolecule):
                 new_atom_node, old_atom_node = new_atom_edge
 
             old_monomer_node = self._atom_to_monomer_nodes[old_atom_node]
+            # remove from old node
+            to_remove = {i for i in self._monomer_to_atom_nodes[old_monomer_node] if i not in self.graph_.nodes}
+            for i in to_remove:
+                self._atom_to_monomer_nodes.pop(i)
+                self._monomer_to_atom_nodes[old_monomer_node].remove(i)
             edge = (old_monomer_node, new_monomer_node)
             atom_edge = (old_atom_node, new_atom_node)
             names = (self._monomer_graph.nodes[old_monomer_node]["monomer_name"],
@@ -189,8 +194,8 @@ class Oligomer(BaseMolecule):
             self,
             n_neighbors: int = 0,
     ) -> List[int]:
-        nodes = self.graph.get_central_nodes(n_neighbors=n_neighbors)
-        return np.where(np.isin(self.graph.nodes, nodes))[0]
+        nodes = list(self.graph.get_central_nodes(n_neighbors=n_neighbors))
+        return np.where(np.isin(list(self.graph_.nodes), nodes))[0]
 
     def get_index_to_monomer_atom_mapping(self):
         return {i: atom

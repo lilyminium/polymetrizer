@@ -4,6 +4,8 @@ channels:
   - conda-forge
   - defaults
   - openeye
+  - psi4
+  - psi4/label/dev
 
 dependencies:
   - ambertools
@@ -14,12 +16,13 @@ dependencies:
   - ipywidgets
   - jupyter_contrib_nbextensions
   - matplotlib
+  - networkx
   - nglview
   - numpy
   - openeye-toolkits
   - openff-forcefields
   - openmm
-  - pandas
+  - psi4
   - pydantic
   - pytest
   - pytest-cov
@@ -27,8 +30,7 @@ dependencies:
   - pip
   - rdkit
   - pip:
-    - xmltodict
-    - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=mdanalysis&subdirectory=package
-    - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=MDAnalysisTests&subdirectory=testsuite
-    - git+https://github.com/openforcefield/openff-fragmenter@master
-    - git+https://github.com/openforcefield/openff-toolkit@fix-967
+      - xmltodict
+      - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=mdanalysis&subdirectory=package
+      - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=MDAnalysisTests&subdirectory=testsuite
+      - git+https://github.com/openforcefield/openff-toolkit@fix-967

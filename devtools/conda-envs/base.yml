@@ -1,11 +1,17 @@
 name: polymetrizer
 channels:
   - conda-forge
-  - defaults
+  - openeye
 
 dependencies:
+  - networkx
   - numpy
+  - openeye-toolkits
   - openff-toolkit-base >=0.9.2
+  - openmm
+  - pydantic
   - python
   - pip
   - rdkit
+  - pip:
+      - typing-extensions

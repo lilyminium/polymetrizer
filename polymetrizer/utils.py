@@ -84,14 +84,14 @@ class cached_property:
         instance.__dict__.pop(self.attrname, None)
 
 
-def uncache_properties(*args, pre=False):
+def uncache_properties(*propnames, pre=False):
     def decorator(func):
         def wrapper(self, *args, **kwargs):
             if pre:
-                self.uncache(*args)
+                self.uncache(*propnames)
             val = func(self, *args, **kwargs)
             if not pre:
-                self.uncache(*args)
+                self.uncache(*propnames)
             return val
         return wrapper
     return decorator

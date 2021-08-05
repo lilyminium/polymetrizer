@@ -171,11 +171,11 @@ class Polymetrizer(base.Model):
                     split_smarts_into_full: bool = True,
                     partial_charge_method: str = "am1bcc",
                     minimize_geometry: bool = True,
-                    optimize_geometry: bool = True,
+                    optimize_geometry: bool = False,
                     minimize_max_iter: int = 1000,
                     optimize_method: str = "m06-2x/def2-TZVP",
                     ):
-        self.enumerate_oligomers(n_neighbor_monomers=n_neighbors,
+        self.enumerate_oligomers(n_neighbor_monomers=n_neighbor_monomers,
                                  prune_isomorphs=prune_isomorphs)
         ff = self.build_openff_residue_forcefield(forcefield,
                                                   n_neighbors=n_overlapping_atoms,

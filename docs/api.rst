@@ -3,5 +3,7 @@ API Documentation
 
 .. autosummary::
    :toctree: autosummary
-
-   polymetrizer.canvas
+   :recursive:
+   
+   polymetrizer
+   

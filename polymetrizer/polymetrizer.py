@@ -5,6 +5,7 @@ import logging
 from collections import defaultdict
 import functools
 
+from tqdm import tqdm
 import numpy as np
 import networkx as nx
 from pydantic import PrivateAttr, validator, Field
@@ -76,7 +77,7 @@ class Polymetrizer(base.Model):
     def enumerate_oligomers(self, n_neighbor_monomers: int = 1,
                             prune_isomorphs: bool = True):
         products = []
-        for monomer in self._monomers:
+        for monomer in tqdm(self._monomers):
             og = monomer.to_oligomer()
             products.extend(
                 og.enumerate_substituted_products(substituents=self._monomers,
@@ -107,7 +108,7 @@ class Polymetrizer(base.Model):
 
     def generate_openff_parameters(self, forcefield, **kwargs):
         parameters = ForceFieldParameterSets()
-        for oligomer in self._oligomers:
+        for oligomer in tqdm(self._oligomers):
             parameters += oligomer.to_openff_parameterset(forcefield,
                                                           **kwargs)
         return parameters

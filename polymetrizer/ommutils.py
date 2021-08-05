@@ -1,10 +1,12 @@
 from collections import defaultdict
 
+import networkx as nx
 from simtk.openmm.openmm import (NonbondedForce, HarmonicBondForce,
-                                 HarmonicAngleForce, PeriodicTorsionForce)
+                                 HarmonicAngleForce, PeriodicTorsionForce,
+                                 CustomBondForce,
+                                 )
 
 from . import utils
-from .offutils import OFFParam, ChargeParam, TorsionParam
 
 
 def get_nonbonded_parameters(force, **kwargs):
@@ -12,8 +14,8 @@ def get_nonbonded_parameters(force, **kwargs):
     vdw = {}
     for fcix in range(force.getNumParticles()):
         charge, sigma, epsilon = force.getParticleParameters(int(fcix))
-        charges[(fcix,)] = ChargeParam(dict(charge=[charge]))
-        vdw[(fcix,)] = OFFParam(dict(sigma=sigma, epsilon=epsilon))
+        charges[(fcix,)] = dict(charge=[charge])
+        vdw[(fcix,)] = dict(sigma=sigma, epsilon=epsilon)
     return dict(LibraryCharges=charges, vdW=vdw)
 
 
@@ -25,7 +27,7 @@ def get_bond_parameters(force, **kwargs):
         atoms = param[:2]
         if atoms[0] > atoms[-1]:
             atoms = atoms[::-1]
-        bonds[tuple(atoms)] = OFFParam(dict(zip(parameter_names, param[2:])))
+        bonds[tuple(atoms)] = dict(zip(parameter_names, param[2:]))
     return dict(Bonds=bonds)
 
 
@@ -37,22 +39,26 @@ def get_angle_parameters(force, **kwargs):
         atoms = param[:3]
         if atoms[0] > atoms[-1]:
             atoms = atoms[::-1]
-        angles[tuple(atoms)] = OFFParam(dict(zip(parameter_names, param[3:])))
+        angles[tuple(atoms)] = dict(zip(parameter_names, param[3:]))
     return dict(Angles=angles)
 
 
-def get_torsion_parameters(force, oligomer=None, **kwargs):
+def get_torsion_parameters(force, bond_graph, **kwargs):
     parameter_names = ("periodicity", "phase", "k")
     propers = defaultdict(lambda: defaultdict(list))
     impropers = defaultdict(lambda: defaultdict(list))
+
     for i in range(force.getNumTorsions()):
         param = force.getTorsionParameters(i)
         atoms = param[:4]
         # improper: first, third atoms are bonded
-        if oligomer.atoms_are_bonded(atoms[0], atoms[2]):
+        if atoms[2] in bond_graph[atoms[0]]:
             atoms = [atoms[i] for i in [1, 0, 2, 3]]
             dest = impropers
         else:
+            assert atoms[1] in bond_graph[atoms[0]]
+            assert atoms[2] in bond_graph[atoms[1]]
+            assert atoms[3] in bond_graph[atoms[2]]
             dest = propers
             if atoms[0] > atoms[-1]:
                 atoms = atoms[::-1]
@@ -60,17 +66,15 @@ def get_torsion_parameters(force, oligomer=None, **kwargs):
         for k, v in zip(parameter_names, param[4:]):
             dest[atoms][k].append(v)
 
-    real_propers = {}
-    real_impropers = {}
-    for atoms, info in propers.items():
-        real_propers[atoms] = TorsionParam(info)
-    for atoms, info in impropers.items():
-        real_impropers[atoms] = TorsionParam(info)
-    return dict(ProperTorsions=real_propers, ImproperTorsions=real_impropers)
+    for dest in (propers, impropers):
+        for atoms, params in dest.items():
+            params["idivf"] = [1] * len(params["periodicity"])
+
+    return dict(ProperTorsions=propers, ImproperTorsions=impropers)
 
 
 def quantity_to_value(obj):
-    if utils.isisterable(obj):
+    if utils.isiterable(obj):
         return [quantity_to_value(x) for x in obj]
     try:
         return obj._value
@@ -84,3 +88,14 @@ OPENMM_FORCE_PARSERS = {
     HarmonicAngleForce: get_angle_parameters,
     PeriodicTorsionForce: get_torsion_parameters,
 }
+
+
+def bond_graph_from_system(system):
+    graph = nx.Graph()
+    for force in system.getForces():
+        if isinstance(force, (HarmonicBondForce, CustomBondForce)):
+            for i in range(force.getNumBonds()):
+                param = force.getBondParameters(i)
+                atoms = param[:2]
+                graph.add_edge(atoms[0], atoms[1])
+    return graph

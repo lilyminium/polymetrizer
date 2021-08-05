@@ -2,11 +2,9 @@ name: docs
 channels:
   - conda-forge
   - defaults
-  - openeye
-  
+
 dependencies:
-    # Base depends
-  - ambertools
+  # Base depends
   - bokeh
   - codecov
   - cython
@@ -14,9 +12,9 @@ dependencies:
   - ipywidgets
   - jupyter_contrib_nbextensions
   - matplotlib
+  - networkx
   - nglview
   - numpy
-  - openeye-toolkits
   - openff-forcefields
   - openmm
   - pandas
@@ -27,8 +25,8 @@ dependencies:
   - pip
   - rdkit
   - pip:
-    - xmltodict
-    - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=mdanalysis&subdirectory=package
-    - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=MDAnalysisTests&subdirectory=testsuite
-    - git+https://github.com/openforcefield/openff-fragmenter@master
-    - git+https://github.com/openforcefield/openff-toolkit@fix-967
+      - xmltodict
+      - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=mdanalysis&subdirectory=package
+      - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=MDAnalysisTests&subdirectory=testsuite
+      - git+https://github.com/openforcefield/openff-fragmenter@master
+      - git+https://github.com/openforcefield/openff-toolkit@fix-967

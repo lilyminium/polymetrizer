@@ -33,4 +33,4 @@ dependencies:
       - xmltodict
       - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=mdanalysis&subdirectory=package
       - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=MDAnalysisTests&subdirectory=testsuite
-      - git+https://github.com/openforcefield/openff-toolkit@fix-967
+      - git+https://github.com/openforcefield/openff-toolkit@68059ed40f4337bbd03e7f371c178fe10e7f85be

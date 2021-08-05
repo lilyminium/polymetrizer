@@ -1,5 +1,6 @@
 import contextlib
 import re
+import warnings
 from collections import defaultdict
 
 from rdkit import Chem
@@ -160,6 +161,7 @@ class SmirkSet:
             if return_monomer_id:
                 return sm, cpd.nodes_to_monomer_id(nodes)
             return sm
+        warnings.warn(f"Could not generate SMARTS for {atom_graph.monomer_atoms}")
 
     def generate_all_smarts(self, atom_graph, return_monomer_id: bool = False):
         smarts = []
@@ -190,7 +192,10 @@ class SmirkSet:
 
     def _generate_initial_smarts(self, parameter_set):
         for atom_graph, parameter in parameter_set.items():
-            smarts, mid = self.generate_smarts(atom_graph, return_monomer_id=True)
+            try:
+                smarts, mid = self.generate_smarts(atom_graph, return_monomer_id=True)
+            except TypeError:
+                continue
             self._smarts_to_parameter[smarts].append(parameter)
             self._smarts_to_atomgraph[smarts].append(atom_graph)
             self._smarts_to_ids[smarts] = mid
@@ -286,9 +291,6 @@ class SmirkSet:
             else:
                 central_nodes = cpd.graph.get_central_nodes(exclude_dummy_atoms=True)
             central_atoms = [cpd.graph_.nodes[n]["monomer_atom"] for n in central_nodes]
-            for atom in central_atoms:
-                if atom not in atoms_to_parameters:
-                    print(atom)
             if all(atom in atoms_to_parameters for atom in central_atoms):
                 parameter = defaultdict(list)
                 # for atom in atoms:

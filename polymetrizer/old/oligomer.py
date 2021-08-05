@@ -415,8 +415,8 @@ class Monomer(Oligomer):
         super().__init__(smiles_or_offmol, indices, atom_oligomer_map)
 
 
-HYDROGEN = Monomer("[R1][H]")
+HYDROGEN_CAP = Monomer("[R1][H]")
 
 
 def create_hydrogen_caps(r_group_numbers):
-    return {r: [(1, HYDROGEN)] for r in r_group_numbers}
+    return {r: [(1, HYDROGEN_CAP)] for r in r_group_numbers}

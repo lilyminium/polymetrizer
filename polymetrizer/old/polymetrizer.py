@@ -6,7 +6,7 @@ import warnings
 from openff.toolkit.topology import Molecule as OFFMolecule
 from openff.toolkit.typing.engines.smirnoff.forcefield import ForceField
 
-from .oligomer import Monomer, create_hydrogen_caps, HYDROGEN
+from .oligomer import Monomer, create_hydrogen_caps, HYDROGEN_CAP
 from .smirker import Smirker
 from . import offutils
 
@@ -150,15 +150,14 @@ class Polymetrizer:
         self.oligomers = []
 
         if default_caps is None:
-            default_caps = [HYDROGEN]
-        
+            default_caps = [HYDROGEN_CAP]
+
         self.default_caps = defaultdict(list)
         for monomer in default_caps:
             monomer = Monomer(monomer)
             for num in monomer.r_group_indices:
                 for partner in self.caps_for_r_groups:
                     self.default_caps[partner].append((num, monomer))
-
 
     def create_oligomers(self, n_neighbor_monomers: int = 1,
                          fragmenter=None):

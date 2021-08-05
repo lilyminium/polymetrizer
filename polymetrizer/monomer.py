@@ -5,48 +5,46 @@ import networkx as nx
 from pydantic import Field, validator
 
 from . import base, utils, rdutils
-from .oligomer import Oligomer, Cap, HYDROGEN
-from .graph import BaseMolecule
+from .molecule import Unit
+from .oligomer import Oligomer
+from .cap import Cap, HYDROGEN_CAP
 
 
-class Atom(base.Model):
-
-    atomic_number: int
-    isotope: int
-    formal_charge: int
-    is_aromatic: bool
-    monomer_name: str
-    monomer_node: int
-
-
-class Monomer(Oligomer):
+class Monomer(Unit, Oligomer):
 
     name: Optional[str] = None
 
     def __post_init__(self):
-        self.graph.set_node_attr(monomer_name=self.name, central=True)
-        for node in self.graph.graph:
-            hashable = Atom(monomer_node=node, **self.graph.graph.nodes[node])
-            self.graph.graph.nodes[node]["monomer_atom"] = hashable
+        super().__post_init__()
+        self.graph.set_node_attr(central=True)
+        self._record_monomer(self, new_atom_nodes=self.graph.nodes)
 
     def substitute(self, other: "Monomer",
                    r_self: int, r_other: int):
         obj = self.to_oligomer()
         return obj._substitute(other, r_self, r_other)
 
-    def cap_remaining(
-            self,
-            cap: Cap = HYDROGEN,
-            r_groups: List[int] = [],
-    ):
+    def cap_remaining(self, caps: List[Cap] = [HYDROGEN_CAP], linkage_graph=None):
         obj = self.to_oligomer()
-        return obj._cap_remaining(cap, r_groups)
+        return obj.cap_remaining(caps=caps, linkage_graph=linkage_graph, inplace=True)
 
     def to_oligomer(self):
         oligomer = Oligomer(graph=self.graph.copy(deep=True))
-        starting_nodes = set(oligomer.graph.graph.nodes)
+        starting_nodes = set(oligomer.graph_.nodes)
         oligomer._record_monomer(self, new_atom_nodes=starting_nodes)
         return oligomer
+
+    def to_smarts(
+            self,
+            nodes: List[int] = [],
+            label_nodes: List[int] = [],
+            context="full",
+            include_caps: bool = False,
+            **kwargs,
+    ):
+        nodes = self.graph_.nodes
+        subgraph = self.graph.subgraph(nodes, cap_broken_bonds=True)
+        return subgraph.to_smarts(label_nodes=label_nodes, **kwargs)
 
 # @classmethod
 # def from_smiles(cls, smiles: str, **kwargs):
@@ -55,7 +53,7 @@ class Monomer(Oligomer):
 #     return new
 
 # def __post_init__(self):
-#     self._graph = nx.Graph()
+#     self.graph_ = nx.Graph()
 #     self._r_groups = defaultdict(list)
 #     self._r_group_neighbors = defaultdict(list)
 
@@ -66,18 +64,18 @@ class Monomer(Oligomer):
 
 # @property
 # def graph(self):
-#     return self._graph
+#     return self.graph_
 
 # @graph.setter
 # def graph(self, value):
-#     self._graph = value
+#     self.graph_ = value
 #     self._update_from_graph()
 #     self.set_node_attr(central=True)
 
 # def set_node_attr(self, **kwargs):
-#     for node in self._graph.nodes:
+#     for node in self.graph_.nodes:
 #         for k, v in kwargs.items():
-#             self._graph.graph[node][k] = v
+#             self.graph_.graph[node][k] = v
 
 # def _update_from_graph(self):
 #     for k in list(self._r_groups.keys()):
@@ -132,7 +130,7 @@ class Monomer(Oligomer):
 #     other_atom = next(other.get_neighbors(other_r))
 
 # def iter_r_groups(self):
-#     for node in self._graph.nodes():
+#     for node in self.graph_.nodes():
 #         if isinstance(node, RGroup):
 #             yield node
 

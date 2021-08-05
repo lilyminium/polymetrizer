@@ -5,8 +5,6 @@ import itertools
 
 import numpy as np
 
-from .types import ParameterSetByAtomIndex
-
 
 def replace_R_with_dummy(smiles: str):
     smiles = re.sub(r"([\\/]*)\[R([0-9]+)]", r"\1[\2*:\2]", smiles)
@@ -35,29 +33,65 @@ def get_other_in_pair(self, value, pair):
     return pair[0]
 
 
-def filter_dictionary_by_indices(dictionary: ParameterSetByAtomIndex,
-                                 indices: List[int]):
-    filtered = {}
-    for ix, parameter in dictionary.items():
-        if np.all(np.isin(ix, indices)):
-            filtered[ix] = parameter
-    return filtered
-
-
 def is_iterable(obj: Any) -> bool:
-    """Returns ``True`` if `obj` can be iterated over and is *not* a string
-    nor a :class:`NamedStream`
-    .. note::
-
-        This is adapted from MDAnalysis.lib.util.iterable.
-        It is GPL licensed.
-    """
-    if isinstance(obj, str):
+    import networkx as nx
+    if isinstance(obj, (str, nx.Graph)):
         return False
-    if hasattr(obj, "__next__") or hasattr(obj, "__iter__"):
-        return True
+    # this rules out Quantities, the _bane of my life_
     try:
-        len(obj)
-    except (TypeError, AttributeError):
+        for x in obj:
+            pass
+    except TypeError:
         return False
-    return True
+    except AttributeError:
+        pass
+    else:
+        return True
+    if hasattr(obj, "__next__"):
+        return True
+    return False
+
+
+class cached_property:
+    # this is a crappier version of the functools one
+
+    def __init__(self, func):
+        self.func = func
+        self.attrname = None
+        self.__doc__ = func.__doc__
+
+    def __set_name__(self, cls, name):
+        self.attrname = name
+        self.cls = cls
+        self.qualname = f"{cls.__name__}.{self.attrname}"
+
+    def __get__(self, instance, cls=None):
+        if instance is None:
+            return self
+        try:
+            value = instance.__dict__[self.attrname]
+        except KeyError:
+            value = self.func(instance)
+            instance.__dict__[self.attrname] = value
+        return value
+
+    def __set__(self, instance, value):
+        if value is not None:
+            raise ValueError(f"Cannot set {self.qualname} property")
+        instance.__dict__.pop(self.attrname, None)
+
+    def clear(self, instance):
+        instance.__dict__.pop(self.attrname, None)
+
+
+def uncache_properties(*args, pre=False):
+    def decorator(func):
+        def wrapper(self, *args, **kwargs):
+            if pre:
+                self.uncache(*args)
+            val = func(self, *args, **kwargs)
+            if not pre:
+                self.uncache(*args)
+            return val
+        return wrapper
+    return decorator

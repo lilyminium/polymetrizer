@@ -7,7 +7,6 @@ from simtk.openmm.openmm import (NonbondedForce, HarmonicBondForce,
                                  )
 
 from . import utils
-from .parameters import ForceFieldParameterSets
 
 
 def get_nonbonded_parameters(force, **kwargs):
@@ -48,14 +47,18 @@ def get_torsion_parameters(force, bond_graph, **kwargs):
     parameter_names = ("periodicity", "phase", "k")
     propers = defaultdict(lambda: defaultdict(list))
     impropers = defaultdict(lambda: defaultdict(list))
+
     for i in range(force.getNumTorsions()):
         param = force.getTorsionParameters(i)
         atoms = param[:4]
         # improper: first, third atoms are bonded
-        if (atoms[0], atoms[2]) in bond_graph.edges:
+        if atoms[2] in bond_graph[atoms[0]]:
             atoms = [atoms[i] for i in [1, 0, 2, 3]]
             dest = impropers
         else:
+            assert atoms[1] in bond_graph[atoms[0]]
+            assert atoms[2] in bond_graph[atoms[1]]
+            assert atoms[3] in bond_graph[atoms[2]]
             dest = propers
             if atoms[0] > atoms[-1]:
                 atoms = atoms[::-1]
@@ -63,13 +66,11 @@ def get_torsion_parameters(force, bond_graph, **kwargs):
         for k, v in zip(parameter_names, param[4:]):
             dest[atoms][k].append(v)
 
-    real_propers = {}
-    real_impropers = {}
-    for atoms, info in propers.items():
-        real_propers[atoms] = info
-    for atoms, info in impropers.items():
-        real_impropers[atoms] = info
-    return dict(ProperTorsions=real_propers, ImproperTorsions=real_impropers)
+    for dest in (propers, impropers):
+        for atoms, params in dest.items():
+            params["idivf"] = [1] * len(params["periodicity"])
+
+    return dict(ProperTorsions=propers, ImproperTorsions=impropers)
 
 
 def quantity_to_value(obj):
@@ -93,21 +94,8 @@ def bond_graph_from_system(system):
     graph = nx.Graph()
     for force in system.getForces():
         if isinstance(force, (HarmonicBondForce, CustomBondForce)):
-            for i in range(force.GetNumBonds()):
+            for i in range(force.getNumBonds()):
                 param = force.getBondParameters(i)
                 atoms = param[:2]
                 graph.add_edge(atoms[0], atoms[1])
     return graph
-
-
-def parameter_set_from_openmm_system(system):
-    bond_graph = bond_graph_from_system(system)
-    parameters = {}
-    for force in system.getForces():
-        try:
-            parser = OPENMM_FORCE_PARSERS[type(force)]
-        except KeyError:
-            continue
-        else:
-            parameters.update(parser(force, bond_graph=bond_graph))
-    return ForceFieldParameterSets(**parameters)

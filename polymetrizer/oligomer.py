@@ -8,52 +8,22 @@ import numpy as np
 from pydantic import Field, PrivateAttr
 
 from . import base, utils, ommutils
-from .graph import BaseMolecule, CapGraph
-from .types import ForceFieldParametersByAtomIndex, ForceFieldParametersByNode
+from .molecule import BaseMolecule
+from .cap import Cap, HYDROGEN_CAP
 from .parameters import ForceFieldParameterSets
-
-
-class Cap(BaseMolecule):
-
-    name: Optional[str] = None
-    graph: CapGraph = Field(default_factory=CapGraph)
-    compatible_rs: Optional[List[int]] = []
-    r: Optional[int] = None
-
-    def __post_init__(self):
-        if self.r is None:
-            self.r = self.graph.graph[self.graph._node].get("isotope")
-
-    def get_compatible_rs(self, *oligomers,
-                          linkage_graph: Optional[nx.Graph] = None,
-                          ):
-        if self.compatible_rs:
-            return self.compatible_rs
-        if linkage_graph is not None and self.r is not None:
-            return list(linkage_graph.neighbors(self.r))
-        return list({r for o in oligomers for r in o.iter_r_group_numbers()})
-
-
-HYDROGEN = Cap.from_smiles("[R][H]", name="H")
 
 
 class Oligomer(BaseMolecule):
 
-    _constituent_monomers: Dict[str, List[int]]
-    _monomer_to_atom_nodes: Dict[int, Set[int]]
-    _atom_to_monomer_nodes: Dict[int, int]
-    _monomer_graph: nx.Graph
-
-    def __post_init__(self):
-        self._constituent_monomers = defaultdict(list)
-        self._monomer_to_atom_nodes = {}
-        self._atom_to_monomer_nodes = {}
-        self._monomer_graph = nx.Graph()
+    _constituent_monomers: Dict[str, List[int]] = PrivateAttr(default_factory=lambda: defaultdict(list))
+    _monomer_to_atom_nodes: Dict[int, Set[int]] = PrivateAttr(default_factory=dict)
+    _atom_to_monomer_nodes: Dict[int, int] = PrivateAttr(default_factory=dict)
+    _monomer_graph: nx.Graph = PrivateAttr(default_factory=nx.Graph)
 
     def _monomer_keyfunc(self):
         return (sorted(self._constituent_monomers),
                 len(self._monomer_to_atom_nodes),
-                len(self.graph.graph.nodes))
+                len(self.graph_.nodes))
 
     def _is_fully_isomorphic(self, other):
         return self.graph.is_isomorphic(other.graph,
@@ -116,32 +86,38 @@ class Oligomer(BaseMolecule):
         new_nodes, new_edge = self.graph.add_with_r(other.graph, r_self, r_other)
         self._record_monomer(other, new_atom_nodes=new_nodes,
                              new_atom_edge=new_edge,
-                             #  r_groups=(r_self, r_other),
                              )
         return self
 
-    def _record_monomer(self, monomer, new_atom_nodes=set(),
-                        new_atom_edge: Optional[Tuple[int, int]] = None,
-                        # r_groups=Optional[Tuple[int, int]],
-                        ):
-        new_monomer_node = len(self.monomer_graph)
+    def _record_monomer(
+            self, monomer,
+            new_atom_nodes=set(),
+            new_atom_edge: Optional[Tuple[int, int]] = None,
+    ):
+        """Do some atom/monomer accounting for each new addition.
+        This primarily builds a monomer-monomer graph for easy CG-searching
+        """
+        new_monomer_node = len(self._monomer_graph)
         self._monomer_to_atom_nodes[new_monomer_node] = new_atom_nodes
         for node in new_atom_nodes:
             self._atom_to_monomer_nodes[node] = new_monomer_node
-        self._constituent_monomers[monomer.name].add(new_monomer_node)
+        self._constituent_monomers[monomer.name].append(new_monomer_node)
+        # add node
         self._monomer_graph.add_node(new_monomer_node, monomer_name=monomer.name)
+        # add edge
         if new_atom_edge:
             old_atom_node, new_atom_node = new_atom_edge
             if old_atom_node in new_atom_nodes:
                 new_atom_node, old_atom_node = new_atom_edge
+
             old_monomer_node = self._atom_to_monomer_nodes[old_atom_node]
             edge = (old_monomer_node, new_monomer_node)
             atom_edge = (old_atom_node, new_atom_node)
-            names = (self._monomer_graph[old_monomer_node]["monomer_name"],
-                     self._monomer_graph[new_monomer_node]["monomer_name"],)
-            monomer_atoms = (self.graph[old_atom_node]["monomer_atom"],
-                             self.graph[new_atom_node]["monomer_atom"])
-            self._monomer_graph.add_edge(edge,
+            names = (self._monomer_graph.nodes[old_monomer_node]["monomer_name"],
+                     self._monomer_graph.nodes[new_monomer_node]["monomer_name"],)
+            monomer_atoms = (self.graph_.nodes[old_atom_node]["monomer_atom"],
+                             self.graph_.nodes[new_atom_node]["monomer_atom"])
+            self._monomer_graph.add_edge(*edge,
                                          atom_nodes=atom_edge,
                                          monomer_atoms=monomer_atoms,
                                          monomer_nodes=edge,
@@ -159,11 +135,11 @@ class Oligomer(BaseMolecule):
             linkage_graph: nx.Graph,
     ) -> List[List[dict]]:
         caps = self.map_r_substituent_pairs(substituents, linkage_graph)
-        r_group_numbers = list(self.graph.iter_r_group_numbers())
+        r_group_numbers = list(self.iter_r_group_numbers())
         sub_choices = [caps.get(r, []) for r in r_group_numbers]
         combinations = [
             [dict(other=other, r_self=r, r_other=r_other)
-             for r, (r_other, other) in zip(combination, r_group_numbers)]
+             for r, (r_other, other) in zip(r_group_numbers, combination)]
             for combination in itertools.product(*sub_choices)
         ]
         return combinations
@@ -175,7 +151,8 @@ class Oligomer(BaseMolecule):
     ):
         groups = self.enumerate_substituent_combinations(substituents,
                                                          linkage_graph)
-        return [self.with_substitutions(group) for group in groups]
+        substituted = [self.with_substitutions(group) for group in groups]
+        return substituted
 
     def enumerate_substituted_products(
             self,
@@ -186,29 +163,24 @@ class Oligomer(BaseMolecule):
     ):
         products = [self]
         for i in range(n_substitutions):
-            products = [x.generate_substituted(substituents, linkage_graph)
-                        for x in products]
-        cap_rs = [cap.get_compatible_rs(*products, linkage_graph=linkage_graph)
-                  for cap in caps]
+            products = [p for x in products for p in
+                        x.generate_substituted(substituents, linkage_graph)]
         for compound in products:
-            for cap, r_groups in zip(cap, cap_rs):
-                compound._cap_remaining(cap, r_groups)
+            compound.cap_remaining(caps=caps, linkage_graph=linkage_graph)
         return products
 
-    def cap_remaining(
-            self,
-            cap: Cap = HYDROGEN,
-            r_groups: List[int] = [],
-            inplace: bool = True,
-    ):
-        obj = self
+    def cap_remaining(self, caps: List[Cap] = [HYDROGEN_CAP], linkage_graph=None,
+                      inplace: bool = True):
         if not inplace:
-            obj = obj.copy(deep=True)
-        obj._cap_remaining(cap, r_groups)
-        return obj
+            obj = self.copy(deep=True)
+            return obj.cap_remaining(caps=caps, linkage_graph=linkage_graph, inplace=True)
+        for cap in caps:
+            r_groups = cap.get_compatible_rs(self, linkage_graph=linkage_graph)
+            self._cap_remaining(cap, r_groups)
+        return self
 
     def _cap_remaining(self, cap, r_groups):
-        for r in self.graph.iter_r_group_numbers():
+        for r in list(self.iter_r_group_numbers()):
             if r in r_groups:
                 self._substitute(cap, r, None)
         return self
@@ -225,61 +197,71 @@ class Oligomer(BaseMolecule):
                 for i, (node, atom) in enumerate(self.graph.nodes("monomer_atom"))
                 if atom is not None}
 
-    def to_openff_parameterset(self, forcefield, n_neighbors: int = -1):
+    def to_openff_parameterset(
+            self,
+            forcefield,
+            n_neighbors: int = -1,
+            **kwargs,
+    ):
         offmol = self.graph.to_openff()
-        system = forcefield.create_openmm_system(offmol.to_topology())
-        parameter_set = ommutils.parameter_set_from_openff_system(system)
+        parameter_set = ForceFieldParameterSets.from_openff_molecule(offmol,
+                                                                     forcefield,
+                                                                     **kwargs)
         if n_neighbors > 0:
             indices = self.get_central_indices(n_neighbors=n_neighbors)
-            parameters.filter_keys(keep=indices)
-        # atom_mapping = self.get_index_to_monomer_atom_mapping()
-        # parameters.remap_keys(mapping=atom_mapping)
-        parameters.map_indices_to_graph(self.graph.graph)
-        return parameters
-
-    def monomer_atoms_to_smarts(
-            self, atom_graph: nx.Graph,
-            context: Literal["minimal", "central", "residue", "full"] = "full",
-            include_caps: bool = True,
-            enumerate_all: bool = True,
-            only_central: bool = False,
-    ):
-        # smarts = []
-        matcher = self.graph.create_graphmatcher(atom_graph,
-                                                 match_monomer_atoms=True)
-        for mapping in matcher.subgraph_isomorphisms_iter():
-            # self to other
-            subgraph = sorted(mapping.items(), key=lambda x: x[1]["index"])
-            nodes = [atom[0] for atom in subgraph]
-            if only_central and not any(self.graph.nodes[n].get("central")):
-                continue
-            sm = self.to_smarts(label_nodes=nodes,
-                                context=context,
-                                include_caps=include_caps)
-            return sm  # I think it's basically equivalent for all smarts?
+            parameter_set.filter_keys(keep=indices)
+        parameter_set.map_indices_to_graph(self.graph)
+        return parameter_set
 
     def to_smarts(
             self,
             nodes: List[int] = [],
             label_nodes: List[int] = [],
             context: Literal["minimal", "central", "residue", "full"] = "full",
-            include_caps: bool = True,
+            include_caps: bool = False,
+            return_monomer_id=False,
             **kwargs,
     ):
-        nodes = set(nodes) + set(label_nodes)
+        nodes = set(nodes) | set(label_nodes)
         if context == "central":
-            nodes |= self.graph.get_central_nodes(n_neighbors=0)
+            central = self.graph.get_central_nodes(n_neighbors=0)
+            # TODO: cheap way to get all nodes in between
+            nodes |= central
         elif context == "residue":
             monomer_ints = {self._atom_to_monomer_nodes[i] for i in nodes}
-            nodes
+            for monomer in monomer_ints:
+                nodes |= self._monomer_to_atom_nodes[monomer]
         elif context == "full":
-            nodes = self.graph.graph.nodes
+            nodes = self.graph_.nodes
+        nodes = {i for i in nodes if i in self.graph_}
         if include_caps:
             nodes |= self.graph.get_neighbor_caps(*nodes)
+        else:
+            nodes = {i for i in nodes if not self.graph_.nodes[i].get("cap")}
+            nodes |= set(label_nodes)
         subgraph = self.graph.subgraph(nodes, cap_broken_bonds=True)
-        return subgraph.graph.to_smarts(label_nodes=label_nodes, **kwargs)
+
+        sm = subgraph.to_smarts(label_nodes=label_nodes, **kwargs)
+        if return_monomer_id:
+            return sm, self.nodes_to_monomer_id(nodes)
+        return sm
 
     def get_atom_node(self, atom):
-        for node, data in self.graph.graph.nodes(data=True):
+        for node, data in self.graph_.nodes(data=True):
             if data.get("monomer_atom") == atom:
                 return node
+
+    def iter_r_group_numbers(self):
+        for _, data in self.graph_.nodes(data=True):
+            if data["atomic_number"] == 0:
+                yield data["atom_map_number"]
+
+    def visualize(self, backend="rdkit"):
+        return self.graph.to_openff().visualize(backend=backend)
+
+    def nodes_to_monomer_id(self, nodes):
+        names = [self.graph_.nodes[n]["monomer_name"] for n in nodes]
+        monomer_nodes = [self._atom_to_monomer_nodes[n] for n in nodes]
+        _, index = np.unique(monomer_nodes, return_index=True)
+        final_names = sorted([names[i].capitalize() for i in index])
+        return "".join(final_names)

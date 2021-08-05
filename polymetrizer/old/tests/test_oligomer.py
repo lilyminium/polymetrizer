@@ -5,14 +5,15 @@ import numpy as np
 
 import polymetrizer as pet
 from polymetrizer.oligomer import (Oligomer, Monomer,
-                                   AtomWrapper, HYDROGEN,
+                                   AtomWrapper, HYDROGEN_CAP,
                                    create_hydrogen_caps)
 
 
 from .data import PEGMA_R_SMILES,  BMA_R_SMILES, SPLIT_MOL_R_SMILES, SPLIT_MOL_R_LINKAGES, FULL_MOL_SMARTS
 
-CAPLIST = [(1, HYDROGEN), (2, HYDROGEN), (3, HYDROGEN)]
+CAPLIST = [(1, HYDROGEN_CAP), (2, HYDROGEN_CAP), (3, HYDROGEN_CAP)]
 SUBSTITUENTS = {i: CAPLIST for i in range(1, 10)}
+
 
 @given(r_numbers=st.sets(st.integers()))
 def test_create_hydrogen_caps(r_numbers):
@@ -21,6 +22,7 @@ def test_create_hydrogen_caps(r_numbers):
     assert list(caps) == r_group_numbers
     assert all(len(x) == 1 for x in caps.values())
     assert all(x[0][0] == 1 for x in caps.values())
+
 
 class TestMonomer:
     @pytest.mark.parametrize(
@@ -42,7 +44,7 @@ class TestMonomer:
         for index, wrapper in monomer.atom_oligomer_map.items():
             assert wrapper.index == index
             assert wrapper.monomer is monomer
-        
+
         another = Monomer(smiles)
         # assert monomer == another
         # assert hash(monomer) != hash(another)
@@ -50,10 +52,12 @@ class TestMonomer:
 
 @pytest.fixture
 def cap_options(pegma, bma):
-    return {1: [(2, bma), (2, pegma), (1, HYDROGEN)],
+    return {1: [(2, bma), (2, pegma), (1, HYDROGEN_CAP)],
             2: [(1, bma)]}
 
+
 PEGMA_PEGMA_CENTRAL_INDICES = [44, 45, 46, 47, 49] + list(range(50, 88))
+
 
 class TestOligomer:
 
@@ -86,17 +90,17 @@ class TestOligomer:
         err = f"must be labelled. The atom at index {index}"
         with pytest.raises(ValueError, match=err):
             oligomer = Oligomer(offmol)
-    
+
     def test_get_applicable_caps_no_ignore(self, pegma):
         caps = pegma.get_applicable_caps(SUBSTITUENTS)
         assert len(caps) == 9
         assert all(set(cap.keys()) == {1, 2} for cap in caps)
-    
+
     def test_get_applicable_caps_ignore_r(self, pegma):
         caps = pegma.get_applicable_caps(SUBSTITUENTS, ignore_r=1)
         assert len(caps) == 3
         assert all(set(cap.keys()) == {2} for cap in caps)
-    
+
     def test_get_cap_combinations(self, pegma):
         combs = pegma.get_cap_combinations(SUBSTITUENTS)
         assert set(combs.keys()) == {1, 2}
@@ -106,7 +110,7 @@ class TestOligomer:
         assert len(combs[2]) == 3
 
     def test_attach_substituents_h(self, pegma):
-        new = pegma.attach_substituents({1: (1, HYDROGEN)})
+        new = pegma.attach_substituents({1: (1, HYDROGEN_CAP)})
         assert new.offmol.n_atoms == 45
         assert set(new.r_group_indices.keys()) == {2}
         expected_central = [0, 1, 2, 4, 6] + list(range(7, 45))
@@ -114,7 +118,7 @@ class TestOligomer:
         assert new.offmol.atoms[3].atomic_number == 1
         assert new.offmol.atoms[5].atomic_number == 0
         assert new.r_group_indices[2] == 5
-        assert new.atom_oligomer_map[3].monomer is HYDROGEN
+        assert new.atom_oligomer_map[3].monomer is HYDROGEN_CAP
         for i in expected_central:
             assert new.atom_oligomer_map[i].monomer is pegma
 
@@ -160,7 +164,8 @@ class TestOligomer:
         return pegma.generate_substituted(cap_options)
 
     @pytest.mark.parametrize("index, n_atoms, r_group_indices, bma_indices", [
-        (0,  93, {1: 41, 2: 0}, [i for i in range(25, 37) if i != 29] + list(range(75, 93)) + [40, 49, 50, 51, 53, 54, 55, 59, 63, 64, 65, 69, 70, 71]),
+        (0,  93, {1: 41, 2: 0}, [i for i in range(25, 37) if i != 29] +
+         list(range(75, 93)) + [40, 49, 50, 51, 53, 54, 55, 59, 63, 64, 65, 69, 70, 71]),
         (1, 112, {1: 41, 2: 0}, list(range(25, 112))),
         (2,  69,        {2: 0}, [i for i in range(25, 69) if i != 31]),
     ])
@@ -214,7 +219,7 @@ class TestOligomer:
         final = root.build_all_combinations(caps)
         assert final.offmol.n_atoms == 94
         assert final.offmol.chemical_environment_matches(FULL_MOL_SMARTS)
-    
+
     def test_select_relevant_parameters(self, pegma):
         handler_kwargs = {
             "bonds": {(1, 2): 3,
@@ -256,7 +261,7 @@ class TestOligomer:
         (0, 6, 5, 7, 3, 0),
         (1, 7, 6, 9, 6, 3),
         (2, 9, 8, 12, 10, 6),
-        (3, 14, 13, 21, 20, 9), 
+        (3, 14, 13, 21, 20, 9),
     ])
     def test_get_central_forcefield_parameters(self, truncated_monomer, forcefield,
                                                n_neighbors, n_atoms, n_bonds,
@@ -269,6 +274,3 @@ class TestOligomer:
         assert len(params["Angles"]) == n_angles
         assert len(params["ProperTorsions"]) == n_dihedrals
         assert len(params["ImproperTorsions"]) == n_impropers
-
-
-

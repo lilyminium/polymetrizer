@@ -29,6 +29,7 @@ dependencies:
   - python
   - pip
   - rdkit
+  - tqdm
   - pip:
       - xmltodict
       - git+https://github.com/MDAnalysis/mdanalysis@develop#egg=mdanalysis&subdirectory=package

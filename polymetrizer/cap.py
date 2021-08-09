@@ -24,7 +24,6 @@ class Cap(Unit):
                           ):
         if linkage_graph is not None and self.r is not None:
             rs = list(linkage_graph.neighbors(self.r))
-            print("compatible r", self.name, rs)
             return rs
         if self.compatible_rs:
             return self.compatible_rs

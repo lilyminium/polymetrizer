@@ -133,7 +133,6 @@ class MolecularGraph(HashableGraph):
     @classmethod
     def from_smiles(cls, smiles: str, remove_hs: bool = False):
         smiles = utils.replace_R_with_dummy(smiles)
-        print("SMILES", smiles)
         smiles_parser = Chem.rdmolfiles.SmilesParserParams()
         smiles_parser.removeHs = remove_hs
         rdmol = Chem.MolFromSmiles(smiles, smiles_parser)

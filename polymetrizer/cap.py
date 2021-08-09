@@ -17,13 +17,15 @@ class Cap(Unit):
     def __post_init__(self):
         super().__post_init__()
         if self.r is None:
-            self.r = self.graph_[self.graph._node].get("atom_map_number")
+            self.r = self.graph_.nodes[self.graph._node].get("atom_map_number")
 
     def get_compatible_rs(self, *oligomers,
                           linkage_graph: Optional[nx.Graph] = None,
                           ):
         if linkage_graph is not None and self.r is not None:
-            return list(linkage_graph.neighbors(self.r))
+            rs = list(linkage_graph.neighbors(self.r))
+            print("compatible r", self.name, rs)
+            return rs
         if self.compatible_rs:
             return self.compatible_rs
         if self.compatible_smiles:

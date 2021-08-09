@@ -56,18 +56,18 @@ class BeSmirker:
             for pair, ring in bond_info.items():
                 NEW_BOND = r"\1\2" + ring + r"\3"
                 for a, b in [pair, pair[::-1]]:
-                    OLD_BOND = (f"(\\[[0-9a-zA-Z#@*-+]*:-{a}])"
+                    OLD_BOND = (f"(\\[[0-9a-zA-Z#@*\-\+]*:-{a}])"
                                 "([-:=#~()]+)"
-                                f"(\\[[0-9a-zA-Z#@*-+]*:-{b}])")
+                                f"(\\[[0-9a-zA-Z#@*\-\+]*:-{b}])")
                     smarts = re.sub(OLD_BOND, NEW_BOND, smarts)
 
         # now label atoms
         for n, info in node_info.items():
             atom_smarts = self.atom_smarts_from_info(info)
-            OLD_ATOM = f"\\[[0-9a-zA-Z#@*-+]*:-{n}]"
+            OLD_ATOM = f"\\[[0-9a-zA-Z#@*\-\+]*:-{n}]"
             smarts = re.sub(OLD_ATOM, atom_smarts, smarts)
 
-        assert ":-" not in smarts
+        assert ":-" not in smarts, smarts
         # smarts = re.sub(r"\[([0-9a-zA-Z#@]*):-[0-9]+]", r"[\1]", smarts)
 
         return smarts
@@ -287,8 +287,8 @@ class SmirkSet:
         combined = {}
 
         for atoms, cpd in self.compounds.items():
-            central_nodes = cpd.graph.get_nodes(central=True)
-            cpd.graph.get_central_nodes(exclude_dummy_atoms=True)
+            # central_nodes = cpd.graph.get_nodes(central=True)
+            central_nodes = cpd.graph.get_central_nodes(exclude_dummy_atoms=True)
             central_atoms = {cpd.graph_.nodes[n]["monomer_atom"]
                              for n in central_nodes}
             if central_atoms.issubset(all_atoms):

@@ -288,10 +288,10 @@ class SmirkSet:
 
         for atoms, cpd in self.compounds.items():
             # central_nodes = cpd.graph.get_nodes(central=True)
-            central_nodes = cpd.graph.get_central_nodes(exclude_dummy_atoms=True)
-            central_atoms = {cpd.graph_.nodes[n]["monomer_atom"]
-                             for n in central_nodes}
-            if central_atoms.issubset(all_atoms):
+            central_nodes = list(cpd.graph.get_central_nodes(exclude_dummy_atoms=True))
+            central_atoms = [cpd.graph_.nodes[n]["monomer_atom"]
+                             for n in central_nodes]
+            if set(central_atoms).issubset(all_atoms):
                 parameter = defaultdict(list)
                 for node, atom in zip(central_nodes, central_atoms):
                     for k, v in atoms_to_parameters[atom].items():

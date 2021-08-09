@@ -143,7 +143,8 @@ class ForceFieldParameterSets:
                                                optimize_geometry=optimize_geometry,
                                                minimize_max_iter=minimize_max_iter,
                                                optimize_method=optimize_method)
-        return cls.from_openmm_system(system)
+        pset = cls.from_openmm_system(system)
+        return pset
 
     def __init__(self, **kwargs):
         self.parameter_sets = {}

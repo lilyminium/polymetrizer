@@ -16,7 +16,6 @@ class Monomer(Unit, Oligomer):
 
     def __post_init__(self):
         super().__post_init__()
-        self.graph.set_node_attr(central=True)
         self._record_monomer(self, new_atom_nodes=self.graph.nodes)
 
     def substitute(self, other: "Monomer",

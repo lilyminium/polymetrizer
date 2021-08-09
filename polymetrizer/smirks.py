@@ -129,12 +129,12 @@ class SmirkSet:
     def __init__(self, average_same_smarts: bool = True,
                  split_smarts_into_full: bool = True,
                  context="residue",
-                 include_caps: bool = False,
+                 #  include_caps: bool = False,
                  **kwargs):
         self.split = split_smarts_into_full
         self.average = average_same_smarts
         self.context = context
-        self.include_caps = include_caps
+        # self.include_caps = include_caps
         self.compounds = {}
 
     @contextlib.contextmanager
@@ -157,18 +157,19 @@ class SmirkSet:
         for cpd, nodes in self.iter_matching_subgraph_nodes(atom_graph):
             sm = cpd.to_smarts(label_nodes=nodes,
                                context=self.context,
-                               include_caps=self.include_caps)
+                               #    include_caps=self.include_caps,
+                               )
             if return_monomer_id:
                 return sm, cpd.nodes_to_monomer_id(nodes)
             return sm
-        warnings.warn(f"Could not generate SMARTS for {atom_graph.monomer_atoms}")
+        err = f"Could not generate SMARTS for {atom_graph.monomer_atoms}"
+        warnings.warn(err)
 
     def generate_all_smarts(self, atom_graph, return_monomer_id: bool = False):
         smarts = []
         monomer_ids = []
         for cpd, nodes in self.iter_matching_subgraph_nodes(atom_graph):
             sm, mid = cpd.to_smarts(label_nodes=nodes, context="full",
-                                    include_caps=self.include_caps,
                                     return_monomer_id=True)
             monomer_ids.append(mid)
             smarts.append(sm)
@@ -193,7 +194,8 @@ class SmirkSet:
     def _generate_initial_smarts(self, parameter_set):
         for atom_graph, parameter in parameter_set.items():
             try:
-                smarts, mid = self.generate_smarts(atom_graph, return_monomer_id=True)
+                smarts, mid = self.generate_smarts(atom_graph,
+                                                   return_monomer_id=True)
             except TypeError:
                 continue
             self._smarts_to_parameter[smarts].append(parameter)
@@ -233,7 +235,9 @@ class SmirkSet:
                 averaged = pset.average_over_keys()
                 averaged[smarts]["id"] = self._smarts_to_ids[smarts]
                 return averaged
-            raise ValueError("Non-unique parameters for same smarts and averaging is turned off")
+            err = ("Non-unique parameters for same smarts "
+                   "and averaging is turned off")
+            raise ValueError(err)
 
         atomgraphs = self._smarts_to_atomgraph[smarts]
         full_smarts = defaultdict(list)
@@ -277,32 +281,25 @@ class SmirkSet:
         atoms_to_parameters = {}
         for graph, parameter in parameter_set.items():
             atom = graph.monomer_atoms[0]
-            # if atom.cap and not self.include_caps:
-            #     continue
             atoms_to_parameters[atom] = parameter
 
-        all_atoms = frozenset(atoms_to_parameters)
-
+        all_atoms = set(atoms_to_parameters)
         combined = {}
 
         for atoms, cpd in self.compounds.items():
-            if self.include_caps:
-                central_nodes = {i for i, n in cpd.graph_.nodes("atomic_number") if n}
-            else:
-                central_nodes = cpd.graph.get_central_nodes(exclude_dummy_atoms=True)
-            central_atoms = [cpd.graph_.nodes[n]["monomer_atom"] for n in central_nodes]
-            if all(atom in atoms_to_parameters for atom in central_atoms):
+            central_nodes = cpd.graph.get_nodes(central=True)
+            cpd.graph.get_central_nodes(exclude_dummy_atoms=True)
+            central_atoms = {cpd.graph_.nodes[n]["monomer_atom"]
+                             for n in central_nodes}
+            if central_atoms.issubset(all_atoms):
                 parameter = defaultdict(list)
-                # for atom in atoms:
-                #     nodes.append(cpd.get_atom_node(atom))
                 for node, atom in zip(central_nodes, central_atoms):
                     for k, v in atoms_to_parameters[atom].items():
                         if utils.is_iterable(v):
                             parameter[k].extend(v)
                         else:
                             parameter[k].append(v)
-                smarts = cpd.to_smarts(label_nodes=central_nodes, context=self.context,
-                                       include_caps=self.include_caps)
+                smarts = cpd.to_smarts(label_nodes=central_nodes)
                 parameter["id"] = cpd.nodes_to_monomer_id(central_nodes)
                 combined[smarts] = parameter
         return combined

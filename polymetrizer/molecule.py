@@ -1,4 +1,4 @@
-from typing import Any, Optional, List, Dict, Tuple, Union
+from typing import Any, Optional, List, Dict, Tuple, Union, Set
 from typing_extensions import Literal
 from collections import defaultdict
 
@@ -154,22 +154,7 @@ class BaseMolecule(base.Model):
 
         return cap_combinations
 
-    def get_central_nodes(
-            self,
-            n_neighbors: int = 0,
-            exclude_dummy_atoms: bool = True,
-    ) -> Set[int]:
-        # TODO: much of this is redundant with get_nodes
-        nodes = self.get_nodes(central=True)
-        if exclude_dummy_atoms:
-            nodes = {k for k in nodes if self.graph_.nodes[k]["atomic_number"]}
-        layer = nodes.copy()
-        for i in range(n_neighbors):
-            layer = self.neighbors(*layer) - layer
-            if exclude_dummy_atoms:
-                layer = {k for k in layer if self.graph_.nodes[k]["atomic_number"]}
-            nodes |= layer
-        return nodes
+    
 
 
 

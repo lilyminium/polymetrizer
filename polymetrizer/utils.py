@@ -1,4 +1,4 @@
-from typing import Set, List, Dict, Any
+from typing import Set, List, Dict, Any, Optional
 from collections import defaultdict
 import re
 import itertools
@@ -6,9 +6,12 @@ import itertools
 import numpy as np
 
 
-def replace_R_with_dummy(smiles: str):
+def replace_R_with_dummy(smiles: str, r_number: Optional[int] = None):
     smiles = re.sub(r"([\\/]*)\[R([0-9]+)]", r"\1[\2*:\2]", smiles)
-    smiles = re.sub(r"\[R\]", r"[*]", smiles)
+    if r_number:
+        smiles = re.sub(r"\[R\]", f"[*:{r_number}]", smiles)
+    else:
+        smiles = re.sub(r"\[R\]", r"[*]", smiles)
     return smiles
 
 

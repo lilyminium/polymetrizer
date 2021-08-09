@@ -154,8 +154,6 @@ class Oligomer(BaseMolecule):
     #     ix = np.where(np.isin(list(self.graph_.nodes), list(nodes)))[0]
     #     return set(list(ix))
 
-    
-
     def to_openff_parameterset(
             self,
             forcefield,

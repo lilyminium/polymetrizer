@@ -216,6 +216,10 @@ class MolecularGraph(HashableGraph):
             return r
         raise ValueError(f"R group {r} not found in molecule.")
 
+    def get_r_by_smiles(self, smiles):
+        rdmol = self.to_rdkit()
+        return rdutils.get_r_from_smiles(rdmol, smiles)
+
     def add_with_r(self, other: "MolecularGraph", r_self: int, r_other: int):
         other_node = other.get_r_node(r_other)
         self_node = self.get_r_node(r_self)
@@ -361,6 +365,23 @@ class MolecularGraph(HashableGraph):
             self_to_other.sort(key=lambda x: atom_graph.graph_.nodes[x[1]]["index"])
             nodes = [x[0] for x in self_to_other]
             yield nodes
+
+    def get_central_nodes(
+            self,
+            n_neighbors: int = 0,
+            exclude_dummy_atoms: bool = True,
+    ) -> Set[int]:
+        # TODO: much of this is redundant with get_nodes
+        nodes = self.get_nodes(central=True)
+        if exclude_dummy_atoms:
+            nodes = {k for k in nodes if self.graph_.nodes[k]["atomic_number"]}
+        layer = nodes.copy()
+        for i in range(n_neighbors):
+            layer = self.neighbors(*layer) - layer
+            if exclude_dummy_atoms:
+                layer = {k for k in layer if self.graph_.nodes[k]["atomic_number"]}
+            nodes |= layer
+        return nodes
 
 
 class CapGraph(MolecularGraph):

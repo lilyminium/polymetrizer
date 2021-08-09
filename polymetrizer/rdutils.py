@@ -5,7 +5,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 import networkx as nx
 
-from . import base
+from . import base, utils
 
 
 def rdmol_to_nxgraph(rdmol, add_hs=True):
@@ -59,3 +59,23 @@ def minimize_conformers(molecule, minimize_max_iter: int = 1000):
     for conformer in opt._conformers:
         molecule._add_conformer(conformer)
     return molecule
+
+
+def get_r_from_smiles(rdmol, smiles):    
+    r = len(smiles) * 2  # probably safe
+    while str(r) in smiles:
+        r += 1
+    smiles = utils.replace_R_with_dummy(smiles, r_number=r)
+    submol = Chem.MolFromSmarts(smiles)
+    for i, atom in enumerate(submol.GetAtoms()):
+        if atom.GetAtomMapNum() == r:
+            r_index = i
+            break
+    else:
+        raise ValueError("Cannot find which atom represents R-group")
+    r_groups = set()
+    for match in rdmol.GetSubstructMatches(submol):
+        potential = rdmol.GetAtomWithIdx(match[i])
+        if potential.GetAtomicNum() == 0:
+            r_groups.add(potential.GetIsotope())
+    return r_groups

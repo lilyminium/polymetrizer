@@ -145,9 +145,9 @@ class ForceFieldParameterSets:
         #                                        optimize_method=optimize_method)
         # pset = cls.from_openmm_system(system)
         # return pset
+        smiles = "parameters/" + str(hash(molecule.to_smiles())) + ".pkl"
         try:
             import pickle
-            smiles = molecule.to_smiles()
             with open(f"{smiles}", "rb") as f:
                 pset = pickle.load(f)
             return pset
@@ -160,8 +160,11 @@ class ForceFieldParameterSets:
                                                    minimize_max_iter=minimize_max_iter,
                                                    optimize_method=optimize_method)
             pset = cls.from_openmm_system(system)
-            with open(f"{smiles}", "wb") as f:
-                pickle.dump(pset, f)
+            try:
+                with open(f"{smiles}", "wb") as f:
+                    pickle.dump(pset, f)
+            except:
+                pass
             return pset
 
     def __init__(self, **kwargs):

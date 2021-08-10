@@ -7,16 +7,25 @@ polymetrizer
 
 Generate force fields for polymer-like molecules
 
-e.g. to compare charges created for a whole molecule, vs. one assembled from parts:
-
 ```python
 from polymetrizer import Polymetrizer
 from polymetrizer.tests.smiles import ALA, SER, CYS, ACE, NME
 from openff.toolkit.typing.engines.smirnoff import ForceField
 
+# ALA = "[H][N]([C@]([H])([C](=[O])[*:2])[C]([H])([H])[H])[*:1]"
+# SER = "[H][O][C]([H])([H])[C@@]([H])([C](=[O])[*:2])[N]([H])[*:1]"
+# CYS = "[H][S][C]([H])([H])[C@@]([H])([C](=[O])[*:2])[N]([H])[*:1]"
+# ACE = "CC(=O)-[*:6]"
+# NME = "[*:7]NC"
+
+# The linkage points go HN-R1, O=C-R2
+# so we need to bond R1-R2 to get a peptide bond
+# ACE is O=C-R6
+# NME is CN-R7
+
 met = Polymetrizer(monomers=dict(Ser=SER, Ala=ALA, Cys=CYS, Ace=ACE, Nme=NME),
                    caps=[ACE, NME],
-                   r_linkages = {1: {2, 6}, 3: {4, 5}, 7: {2}, 8: {3}})
+                   r_linkages = {1: {2, 6}, 7: {2}})
 original_ff = ForceField("openff_unconstrained-1.3.0.offxml")
 new_ff = met.polymetrize(original_ff,
                          n_neighbor_monomers=1,  # builds tripeptides

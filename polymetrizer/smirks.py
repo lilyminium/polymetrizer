@@ -46,7 +46,7 @@ class BeSmirker:
             atom.SetAtomMapNum(-atom.GetAtomMapNum())
 
         for i, node in enumerate(label_atom_numbers, 1):
-            node_info[node]["label"] = f":{i}"
+            node_info[node + 1]["label"] = f":{i}"
 
         smarts = Chem.MolToSmarts(rdmol, isomericSmiles=True)
         smarts = smarts.replace("#0", "*")

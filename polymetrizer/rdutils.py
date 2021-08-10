@@ -12,15 +12,15 @@ def rdmol_to_nxgraph(rdmol, add_hs=True):
     graph = nx.Graph()
     if add_hs:
         rdmol = Chem.AddHs(rdmol)
-    for i, atom in enumerate(rdmol.GetAtoms(), 1):
+    for i, atom in enumerate(rdmol.GetAtoms()):
         graph.add_node(i, atomic_number=atom.GetAtomicNum(),
                        atom_map_number=atom.GetAtomMapNum(),
                        formal_charge=atom.GetFormalCharge(),
                        is_aromatic=atom.GetIsAromatic())
 
     for bond in rdmol.GetBonds():
-        graph.add_edge(bond.GetBeginAtomIdx() + 1,
-                       bond.GetEndAtomIdx() + 1,
+        graph.add_edge(bond.GetBeginAtomIdx(),
+                       bond.GetEndAtomIdx(),
                        is_aromatic=bond.GetIsAromatic(),
                        order=int(bond.GetBondTypeAsDouble()))
     return graph
@@ -35,7 +35,7 @@ def nxgraph_to_rdmol(graph, mapped: bool = True, sanitize: bool = True):
         atom.SetIsotope(data["atom_map_number"])
         atom.SetIsAromatic(data["is_aromatic"])
         if mapped:
-            atom.SetAtomMapNum(node)
+            atom.SetAtomMapNum(node + 1)
         rwmol.AddAtom(atom)
         atom_to_ix[node] = i
 

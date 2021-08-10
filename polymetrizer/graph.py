@@ -229,7 +229,7 @@ class MolecularGraph(HashableGraph):
                         "node_to_index_mapping",
                         "monomer_atoms")
     def add(self, other: "MolecularGraph", node_self: int, node_other: int):
-        increment = self.get_max_node()
+        increment = self.get_max_node() + 1
         other_node = node_other + increment
         other = other.relabel_nodes(increment=increment, copy=True)
         other.set_node_attr(central=False)

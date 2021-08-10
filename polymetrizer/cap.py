@@ -17,7 +17,9 @@ class Cap(Unit):
     def __post_init__(self):
         super().__post_init__()
         if self.r is None:
-            self.r = self.graph_.nodes[self.graph._node].get("atom_map_number")
+            r = self.graph_.nodes[self.graph._node].get("atom_map_number")
+            if r:
+                self.r = r
 
     def get_compatible_rs(self, *oligomers,
                           linkage_graph: Optional[nx.Graph] = None,

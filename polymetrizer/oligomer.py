@@ -94,7 +94,9 @@ class Oligomer(BaseMolecule):
     ) -> List[List[dict]]:
         caps = self.map_r_substituent_pairs(substituents, linkage_graph)
         r_group_numbers = list(self.iter_r_group_numbers())
-        sub_choices = [caps.get(r, []) for r in r_group_numbers]
+        sub_choices = [caps.get(r, [(None, None)]) for r in r_group_numbers]
+        # for combination in itertools.product(*sub_choices):
+        #     print(list(zip(r_group_numbers, combination)))
         combinations = [
             [dict(other=other, r_self=r, r_other=r_other)
              for r, (r_other, other) in zip(r_group_numbers, combination)]

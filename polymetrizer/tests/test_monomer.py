@@ -17,17 +17,3 @@ class TestMonomer:
         zs = [a.atomic_number for a in atoms]
         assert zs == [1, 16, 6, 1, 1, 6, 1, 6, 8, 0, 7, 1, 0]
 
-
-class TestAtomGraph:
-
-    def test_create_from_moleculargraph(self, cys):
-        # this is super important for making sure parameters
-        # for the same atoms get grouped together
-        atom_graph = cys.graph.atom_subgraph_by_indices([0, 1, 2])
-        assert list(atom_graph.graph_.edges) == [(0, 1), (1, 2)]
-        copy = atom_graph.copy(deep=True)
-        assert hash(atom_graph.graph_) != hash(copy.graph_)
-        assert hash(atom_graph) == hash(copy)
-        rearranged = cys.graph.atom_subgraph_by_indices([1, 2, 0])
-        assert list(rearranged.graph_.edges) == [(0, 1), (1, 2)]
-        assert hash(atom_graph) != hash(rearranged)

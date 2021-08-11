@@ -27,3 +27,8 @@ def cys():
 @pytest.fixture()
 def pro():
     return Monomer.from_smiles(PRO, name="Pro")
+
+
+@pytest.fixture()
+def cys_oligomer(cys):
+    return cys.to_oligomer()

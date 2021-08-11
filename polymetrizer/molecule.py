@@ -147,10 +147,11 @@ class BaseMolecule(base.Model):
         cap_combinations = defaultdict(list)
 
         for r in self.iter_r_group_numbers():
-            neighbors = linkage_graph.neighbors(r)
-            for n in neighbors:
-                for monomer in r_to_monomer[n]:
-                    cap_combinations[r].append((n, monomer))
+            if r in linkage_graph:
+                neighbors = linkage_graph.neighbors(r)
+                for n in neighbors:
+                    for monomer in r_to_monomer[n]:
+                        cap_combinations[r].append((n, monomer))
 
         return cap_combinations
 

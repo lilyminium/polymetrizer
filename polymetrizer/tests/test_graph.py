@@ -133,3 +133,15 @@ class TestAtomGraph:
         for i, (atom, z) in enumerate(zip(atoms, elements), 1):
             assert atom.atomic_number == z
             assert atom.monomer_node == i
+
+    def test_create_from_moleculargraph(self, cys):
+        # this is super important for making sure parameters
+        # for the same atoms get grouped together
+        atom_graph = cys.graph.atom_subgraph_by_indices([0, 1, 2])
+        assert list(atom_graph.graph_.edges) == [(0, 1), (1, 2)]
+        copy = atom_graph.copy(deep=True)
+        assert hash(atom_graph.graph_) != hash(copy.graph_)
+        assert hash(atom_graph) == hash(copy)
+        rearranged = cys.graph.atom_subgraph_by_indices([1, 2, 0])
+        assert list(rearranged.graph_.edges) == [(0, 1), (1, 2)]
+        assert hash(atom_graph) != hash(rearranged)

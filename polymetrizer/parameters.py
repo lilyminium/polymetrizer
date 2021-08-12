@@ -18,6 +18,13 @@ class ParameterSet:
         self.name = name
         self._all_parameters = defaultdict(list)
 
+    def __getitem__(self, item):
+        return self._all_parameters[item]
+
+    def __iter__(self):
+        for key in self._all_parameters:
+            yield key
+
     def __len__(self):
         return len(self._all_parameters)
 

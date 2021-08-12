@@ -106,7 +106,7 @@ class BaseMolecule(base.Model):
 
     def iter_r_group_numbers(self):
         for _, data in self.graph_.nodes(data=True):
-            if data["atomic_number"] == 0:
+            if data["atomic_number"] == 0 and data["atom_map_number"] != 0:
                 yield data["atom_map_number"]
 
     def get_atom_node(self, atom):
@@ -161,7 +161,9 @@ class BaseMolecule(base.Model):
 
 class Unit(BaseMolecule):
 
-    name: Optional[str] = ""
+    name: str = ""
+    compatible_rs: Optional[Tuple[int, ...]] = tuple()
+    compatible_smiles: Optional[Tuple[str, ...]] = tuple()
 
     def __post_init__(self):
         self.graph.set_node_attr(monomer_name=self.name)
@@ -172,3 +174,24 @@ class Unit(BaseMolecule):
 
     def nodes_to_monomer_id(self, nodes):
         return self.name
+
+    def get_compatible_rs(self, *oligomers,
+                          linkage_graph: Optional[nx.Graph] = None,
+                          ):
+        rs = list(self.iter_r_group_numbers())
+        if linkage_graph is not None and len(rs):
+            neighbors = []
+            for r in rs:
+                if r in linkage_graph:
+                    neighbors += list(linkage_graph.neighbors(r))
+            return neighbors
+        if self.compatible_rs:
+            return self.compatible_rs
+        if self.compatible_smiles:
+            r = set()
+            for o in oligomers:
+                for smi in self.compatible_smiles:
+                    r |= o.graph.get_r_by_smiles(smi)
+            return r
+        rs = list({r for o in oligomers for r in o.iter_r_group_numbers()})
+        return rs

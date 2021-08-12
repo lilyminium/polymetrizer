@@ -137,6 +137,7 @@ class Oligomer(BaseMolecule):
                                      inplace=True)
         for cap in caps:
             r_groups = cap.get_compatible_rs(self, linkage_graph=linkage_graph)
+            print("r_groups", r_groups)
             self._cap_remaining(cap, r_groups)
         return self
 

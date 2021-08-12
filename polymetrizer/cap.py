@@ -15,28 +15,15 @@ class Cap(Unit):
     r: Optional[int] = None
 
     def __post_init__(self):
+        if not self.name:
+            self.name = "Cap"
         super().__post_init__()
         if self.r is None:
             r = self.graph_.nodes[self.graph._node].get("atom_map_number")
             if r:
                 self.r = r
 
-    def get_compatible_rs(self, *oligomers,
-                          linkage_graph: Optional[nx.Graph] = None,
-                          ):
-        if linkage_graph is not None and self.r is not None:
-            rs = list(linkage_graph.neighbors(self.r))
-            return rs
-        if self.compatible_rs:
-            return self.compatible_rs
-        if self.compatible_smiles:
-            r = set()
-            for o in oligomers:
-                for smi in self.compatible_smiles:
-                    r |= o.graph.get_r_by_smiles(smi)
-            return r
-        return list({r for o in oligomers for r in o.iter_r_group_numbers()})
-
+    
 
 HYDROGEN_CAP = Cap.from_smiles("[R][H]", name="H")
 

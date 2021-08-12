@@ -12,9 +12,9 @@ from .cap import Cap, HYDROGEN_CAP
 
 class Monomer(Unit, Oligomer):
 
-    name: Optional[str] = None
-
     def __post_init__(self):
+        if not self.name:
+            self.name = "Unk"
         super().__post_init__()
         self._record_monomer(self, new_atom_nodes=self.graph.nodes)
 

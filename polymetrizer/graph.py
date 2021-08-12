@@ -208,10 +208,17 @@ class MolecularGraph(HashableGraph):
             if atomic_number == 0:
                 yield node
 
-    def get_r_node(self, r: int) -> int:
+    def get_r_node(self, r: Optional[int]) -> int:
+        def match(node_data):
+            is_match = data["atomic_number"] == 0
+            if r is not None:
+                is_match &= data["atom_map_number"] == r
+            return is_match
+
         for node, data in sorted(self.graph_.nodes(data=True)):
-            if data["atomic_number"] == 0 and data["atom_map_number"] == r:
+            if match(data):
                 return node
+
         if self.graph_.nodes[r]["atomic_number"] == 0:
             return r
         raise ValueError(f"R group {r} not found in molecule.")

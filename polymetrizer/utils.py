@@ -15,27 +15,6 @@ def replace_R_with_dummy(smiles: str, r_number: Optional[int] = None):
     return smiles
 
 
-def replace_dummy_with_R(smiles: str):
-    smiles = re.sub(r"\[\*\]", r"[R]", smiles)
-    return re.sub(r"\[[0-9]*\*:([0-9]+)\]", r"[R\1]", smiles)
-
-
-def get_r_group_numbers_from_smiles(smiles: str) -> Set[int]:
-    return set(map(int, re.findall(r"\[R([0-9]+)]", smiles)))
-
-
-def replace_dummy_with_wildcard(smiles: str):
-    return re.sub(r"\[[0-9]*\*(:?[0-9]*)\]", r"[*\1]", smiles)
-
-
-def get_other_in_pair(self, value, pair):
-    assert len(pair) == 2
-    assert value in pair
-    if value == pair[0]:
-        return pair[1]
-    return pair[0]
-
-
 def is_iterable(obj: Any) -> bool:
     import networkx as nx
     if isinstance(obj, (str, nx.Graph)):

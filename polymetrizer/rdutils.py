@@ -7,6 +7,22 @@ import networkx as nx
 
 from . import base, utils
 
+ORDER_TO_BONDTYPE = {
+    (0, False): Chem.BondType.UNSPECIFIED,
+    (0, True): Chem.BondType.UNSPECIFIED,
+    (1, False): Chem.BondType.SINGLE,
+    (1, True): Chem.BondType.AROMATIC,
+    (2, False): Chem.BondType.DOUBLE,
+    (2, True): Chem.BondType.TWOANDAHALF,
+    (3, False): Chem.BondType.TRIPLE,
+    (3, True): Chem.BondType.THREEANDAHALF,
+    (4, False): Chem.BondType.QUADRUPLE,
+    (4, True): Chem.BondType.FOURANDAHALF,
+    (5, False): Chem.BondType.QUINTUPLE,
+    (5, True): Chem.BondType.FIVEANDAHALF,
+    (6, False): Chem.BondType.HEXTUPLE,
+}
+
 
 def rdmol_to_nxgraph(rdmol, add_hs=True):
     graph = nx.Graph()
@@ -22,7 +38,8 @@ def rdmol_to_nxgraph(rdmol, add_hs=True):
         graph.add_edge(bond.GetBeginAtomIdx(),
                        bond.GetEndAtomIdx(),
                        is_aromatic=bond.GetIsAromatic(),
-                       order=int(bond.GetBondTypeAsDouble()))
+                       order=int(bond.GetBondTypeAsDouble()),
+                       )
     return graph
 
 
@@ -41,9 +58,16 @@ def nxgraph_to_rdmol(graph, mapped: bool = True, sanitize: bool = True):
 
     for i, j, data in graph.edges(data=True):
         a, b = atom_to_ix[i], atom_to_ix[j]
-        order = Chem.BondType.values[data["order"]]
-        x = rwmol.AddBond(a, b, order=order)
-        rwmol.GetBondWithIdx(x - 1).SetIsAromatic(data["is_aromatic"])
+        order = int(data["order"])
+        aro = bool(data["is_aromatic"])
+        try:
+            bondtype = ORDER_TO_BONDTYPE[(order, aro)]
+        except KeyError:
+            raise ValueError(f"Bond with order={order}, is_aromatic {aro} "
+                             "is not currently supported")
+        x = rwmol.AddBond(a, b, order=bondtype)
+        # docs *say* it returns the index but it returns index + 1
+        rwmol.GetBondWithIdx(x - 1).SetIsAromatic(aro)
 
     if sanitize:
         Chem.SanitizeMol(rwmol)

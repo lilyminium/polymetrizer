@@ -17,20 +17,34 @@ class BeSmirker:
                  label_atom_connectivity: bool = False,
                  label_ring_connectivity: bool = False,
                  label_ring_atoms: bool = False,
-                 label_atom_formal_charge: bool = False,
-                 label_ring_bonds: bool = False):
+                 label_atom_formal_charge: bool = True,
+                #  label_ring_bonds: bool = False,
+                 ):
         self.label_atom_element = label_atom_element
         self.label_atom_aromaticity = label_atom_aromaticity
         self.label_atom_hydrogen_count = label_atom_hydrogen_count
         self.label_atom_connectivity = label_atom_connectivity
         self.label_ring_connectivity = label_ring_connectivity
         self.label_ring_atoms = label_ring_atoms
-        self.label_ring_bonds = label_ring_bonds
+        # self.label_ring_bonds = label_ring_bonds
         self.label_atom_formal_charge = label_atom_formal_charge
 
     def __call__(self, rdmol, label_atom_numbers=[]):
         if not isinstance(rdmol, Chem.Mol):
             rdmol = rdmol.to_rdkit()
+        
+        if self.label_atom_hydrogen_count:
+            rdmol = Chem.RemoveHs(rdmol)
+
+        if not all(a.GetAtomMapNum() for a in rdmol.GetAtoms()):
+            try:
+                max_n = max(label_atom_numbers)
+            except ValueError:
+                max_n = 0
+            for i, a in enumerate(rdmol.GetAtoms(), max_n + 1):
+                if not a.GetAtomMapNum():
+                    a.SetAtomMapNum(i)
+
         rdmol = Chem.Mol(rdmol)
 
         node_info = {}
@@ -52,19 +66,22 @@ class BeSmirker:
         smarts = smarts.replace("#0", "*")
 
         # label bonds first
-        if self.label_ring_bonds:
-            for pair, ring in bond_info.items():
-                NEW_BOND = r"\1\2" + ring + r"\3"
-                for a, b in [pair, pair[::-1]]:
-                    OLD_BOND = (f"(\\[[0-9a-zA-Z#@*\-\+]*:-{a}])"
-                                "([-:=#~()]+)"
-                                f"(\\[[0-9a-zA-Z#@*\-\+]*:-{b}])")
-                    smarts = re.sub(OLD_BOND, NEW_BOND, smarts)
+        # TODO: pattern matching is hard with nested bonds
+        # TODO: make a graph to smirks writer
+        # if self.label_ring_bonds:
+        #     for pair, ring in bond_info.items():
+        #         NEW_BOND = r"\1\2" + ring + r"\3"
+        #         for a, b in [pair, pair[::-1]]:
+        #             OLD_BOND = (f"(\\[[0-9a-zA-Z#@*\-\+]*:-{a}])"
+        #                         "([-:=#~()]+)"
+        #                         f"(\\[[0-9a-zA-Z#@*\-\+]*:-{b}])")
+        #             smarts = re.sub(OLD_BOND, NEW_BOND, smarts)
 
         # now label atoms
         for n, info in node_info.items():
             atom_smarts = self.atom_smarts_from_info(info)
             OLD_ATOM = f"\\[[0-9a-zA-Z#@*\-\+]*:-{n}]"
+            # print(list(re.search(OLD_ATOM, smarts).groups()))
             smarts = re.sub(OLD_ATOM, atom_smarts, smarts)
 
         assert ":-" not in smarts, smarts
@@ -88,7 +105,8 @@ class BeSmirker:
             smarts += f"x{info['ring_connectivity']}"
         if self.label_ring_atoms and "min_ring_size" in info:
             ring_size = info["min_ring_size"]
-            ring = f"r{ring_size}" if ring_size else "!r"
+            # TODO: rdkit treats !r weirdly
+            ring = f"r{ring_size}" if ring_size else  "" #"!r"
             smarts += ring
         if self.label_atom_formal_charge and "formal_charge" in info:
             smarts += f"{info['formal_charge']:+d}"

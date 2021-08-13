@@ -85,7 +85,7 @@ def minimize_conformers(molecule, minimize_max_iter: int = 1000):
     return molecule
 
 
-def get_r_from_smiles(rdmol, smiles):    
+def get_r_from_smiles(rdmol, smiles):
     r = len(smiles) * 2  # probably safe
     while str(r) in smiles:
         r += 1
@@ -101,5 +101,8 @@ def get_r_from_smiles(rdmol, smiles):
     for match in rdmol.GetSubstructMatches(submol):
         potential = rdmol.GetAtomWithIdx(match[i])
         if potential.GetAtomicNum() == 0:
-            r_groups.add(potential.GetIsotope())
+            r_ = potential.GetAtomMapNum()
+            if not r_:
+                r_ = potential.GetIsotope()
+            r_groups.add(r_)
     return r_groups

@@ -131,12 +131,15 @@ class Polymetrizer(base.Model):
                 for x in compounds]
 
     def build_openff_residue_forcefield(self, forcefield,
-                                        include_caps: bool = False,
+                                        include_caps: bool = True,
                                         average_same_smarts: bool = True,
                                         split_smarts_into_full: bool = False,
+                                        combine_smarts=("LibraryCharges",),
                                         **kwargs
                                         ):
-        parameters = self.generate_openff_parameters(forcefield, **kwargs)
+        parameters = self.generate_openff_parameters(forcefield,
+                                                     include_caps=include_caps,
+                                                     **kwargs)
         averaged = parameters.average_over_keys()
         smirkset = SmirkSet(average_same_smarts=average_same_smarts,
                             split_smarts_into_full=split_smarts_into_full,
@@ -146,16 +149,17 @@ class Polymetrizer(base.Model):
 
         for parameter_name, parameter_set in averaged.items():
             handler = new.get_parameter_handler(parameter_name)
-            if parameter_name in ("LibraryCharges",):
-                compounds = self._monomers
-                if include_caps:
-                    compounds = self.cap(compounds)
+            if parameter_name in combine_smarts:
+                compounds = self._monomers + self.caps
                 with smirkset.set_compounds(compounds) as smirker:
                     smarts_to_parameter = smirker.generate_combined_smarts(parameter_set)
             else:
                 with smirkset.set_compounds(self.oligomers) as smirker:
                     smarts_to_parameter = smirker.generate_unique_smarts(parameter_set)
-            for i, (smarts, parameter) in enumerate(smarts_to_parameter.items(), 1):
+
+            # sort by length as proxy for applicability
+            parameters = sorted(smarts_to_parameter.items(), key=lambda x: len(x[0]))
+            for i, (smarts, parameter) in enumerate(parameters, 1):
                 parameter = dict(**parameter)
                 pid = parameter.pop("id", None)
                 if pid is not None:
@@ -167,7 +171,7 @@ class Polymetrizer(base.Model):
                     n_neighbor_monomers: int = 1,
                     n_overlapping_atoms: int = 3,
                     prune_isomorphs: bool = True,
-                    include_caps: bool = False,
+                    include_caps: bool = True,
                     average_same_smarts: bool = True,
                     split_smarts_into_full: bool = True,
                     partial_charge_method: str = "am1bcc",

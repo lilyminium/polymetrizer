@@ -48,6 +48,35 @@ class HashableGraph(base.Model):
     def edges(self):
         return self.graph_.edges
 
+    def get_max_node(self):
+        return max(self.graph_.nodes())
+
+    def set_node_attr(self, **kwargs):
+        for node in self.graph_.nodes:
+            for k, v in kwargs.items():
+                self.graph_.nodes[node][k] = v
+
+    def get_nodes(self, n_neighbors: int = 0, **kwargs):
+        nodes = {n for n, data in self.graph_.nodes(data=True)
+                 if all(data.get(k) == v for k, v in kwargs.items())}
+        layer = nodes.copy()
+        for i in range(n_neighbors):
+            layer = self.neighbors(*layer, **kwargs)
+            nodes |= layer
+        return nodes
+
+    def get_node_neighbors(self, nodes, n_neighbors: int = 0):
+        nodes = set(nodes)
+        layer = nodes.copy()
+        for i in range(n_neighbors):
+            layer = self.neighbors(*layer)
+            nodes |= layer
+        return nodes
+
+    def neighbors(self, *nodes, **kwargs):
+        return {m for n in nodes for m, data in self.graph_[n].items()
+                if all(data.get(k) == v for k, v in kwargs.items())}
+
 
 class AtomGraph(HashableGraph):
 
@@ -114,9 +143,6 @@ class MolecularGraph(HashableGraph):
         graph = rdutils.rdmol_to_nxgraph(rdmol)
         return cls(graph=graph)
 
-    def get_max_node(self):
-        return max(self.graph_.nodes())
-
     def create_graphmatcher(
             self, other,
             match_isotope=True,
@@ -177,32 +203,40 @@ class MolecularGraph(HashableGraph):
                                            match_monomer_atoms=match_monomer_atoms)
         return matcher.is_isomorphic()
 
-    def set_node_attr(self, **kwargs):
-        for node in self.graph_.nodes:
-            for k, v in kwargs.items():
-                self.graph_.nodes[node][k] = v
-
     def iter_r_groups(self):
         for node, atomic_number in self.graph_.nodes(data="atomic_number"):
             if atomic_number == 0:
                 yield node
 
-    def get_r_node(self, r: int) -> int:
+    def get_r_node(self, r: Optional[int]) -> int:
+        def match(node_data):
+            is_match = data["atomic_number"] == 0
+            if r is not None:
+                is_match &= data["atom_map_number"] == r
+            return is_match
+
         for node, data in sorted(self.graph_.nodes(data=True)):
-            if data["atomic_number"] == 0 and data["atom_map_number"] == r:
+            if match(data):
                 return node
+
         if self.graph_.nodes[r]["atomic_number"] == 0:
             return r
         raise ValueError(f"R group {r} not found in molecule.")
+
+    def get_r_by_smiles(self, smiles):
+        rdmol = self.to_rdkit()
+        return rdutils.get_r_from_smiles(rdmol, smiles)
 
     def add_with_r(self, other: "MolecularGraph", r_self: int, r_other: int):
         other_node = other.get_r_node(r_other)
         self_node = self.get_r_node(r_self)
         return self.add(other, self_node, other_node)
 
-    @uncache_properties("index_to_node_mapping", "monomer_atoms")
+    @uncache_properties("index_to_node_mapping",
+                        "node_to_index_mapping",
+                        "monomer_atoms")
     def add(self, other: "MolecularGraph", node_self: int, node_other: int):
-        increment = self.get_max_node()
+        increment = self.get_max_node() + 1
         other_node = node_other + increment
         other = other.relabel_nodes(increment=increment, copy=True)
         other.set_node_attr(central=False)
@@ -255,25 +289,21 @@ class MolecularGraph(HashableGraph):
 
     def subgraph(self, nodes=[], cap_broken_bonds: bool = True):
         sub = self.graph_.subgraph(nodes).copy()
-        graph = type(self)(graph=sub)
         DUMMY = dict(atomic_number=0, atom_map_number=0)
         if cap_broken_bonds:
             next_node = self.get_max_node() + 1
             for node in list(sub):
-                new_neighbors = graph.graph_[node]
+                new_neighbors = sub[node]
                 for old_neighbor, edge_data in self.graph_[node].items():
                     if old_neighbor not in new_neighbors:
                         kws = dict(**self.graph_.nodes[old_neighbor])
                         kws["atomic_number"] = 0
                         kws["atom_map_number"] = 0
-                        graph.graph_.add_node(next_node, **kws)
-                        graph.graph_.add_edge(node, next_node, **edge_data)
+                        sub.add_node(next_node, **kws)
+                        sub.add_edge(node, next_node, **edge_data)
                         next_node += 1
+        graph = type(self)(graph=sub)
         return graph
-
-    def neighbors(self, *nodes, **kwargs):
-        return {m for n in nodes for m, data in self.graph_[n].items()
-                if all(data.get(k) == v for k, v in kwargs.items())}
 
     def get_neighbor_caps(self, *nodes):
         caps = self.neighbors(*nodes, cap=True)
@@ -284,31 +314,19 @@ class MolecularGraph(HashableGraph):
             cap_neighbors = self.neighbors(*caps, cap=True)
         return caps
 
-    def get_central_nodes(
-            self,
-            n_neighbors: int = 0,
-            exclude_dummy_atoms: bool = True,
-    ) -> Set[int]:
-        nodes = {k for k, v in self.graph_.nodes("central") if v}
-        if exclude_dummy_atoms:
-            nodes = {k for k in nodes if self.graph_.nodes[k]["atomic_number"]}
-        layer = nodes.copy()
-        for i in range(n_neighbors):
-            layer = self.neighbors(*layer) - layer
-            if exclude_dummy_atoms:
-                layer = {k for k in layer if self.graph_.nodes[k]["atomic_number"]}
-            nodes |= layer
-        return nodes
-
     @cached_property
     def index_to_node_mapping(self):
         return {i: node for i, node in enumerate(self.graph_.nodes)}
 
     @cached_property
+    def node_to_index_mapping(self):
+        return {node: i for i, node in enumerate(self.graph_.nodes)}
+
+    @cached_property
     def monomer_atoms(self):
         return [self.graph_.nodes[node]["monomer_atom"] for node in self.graph_]
 
-    def atom_subgraph_by_indices(self, indices: List[int]):
+    def atomgraph_from_indices(self, indices: List[int]):
         nodes = [self.index_to_node_mapping[i] for i in indices]
         atomgraph = AtomGraph.from_node_graph(self.graph_.subgraph(nodes))
         for i, node in enumerate(nodes):
@@ -354,6 +372,23 @@ class MolecularGraph(HashableGraph):
             self_to_other.sort(key=lambda x: atom_graph.graph_.nodes[x[1]]["index"])
             nodes = [x[0] for x in self_to_other]
             yield nodes
+
+    def get_central_nodes(
+            self,
+            n_neighbors: int = 0,
+            exclude_dummy_atoms: bool = True,
+    ) -> Set[int]:
+        # TODO: much of this is redundant with get_nodes
+        nodes = self.get_nodes(central=True)
+        if exclude_dummy_atoms:
+            nodes = {k for k in nodes if self.graph_.nodes[k]["atomic_number"]}
+        layer = nodes.copy()
+        for i in range(n_neighbors):
+            layer = self.neighbors(*layer) - layer
+            if exclude_dummy_atoms:
+                layer = {k for k in layer if self.graph_.nodes[k]["atomic_number"]}
+            nodes |= layer
+        return nodes
 
 
 class CapGraph(MolecularGraph):

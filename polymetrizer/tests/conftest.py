@@ -4,7 +4,7 @@ from openff.toolkit.typing.engines.smirnoff import ForceField
 
 from polymetrizer import Monomer
 
-from .smiles import ACE, CYS, PRO
+from .smiles import ACE, CYS, PRO, NME
 
 # import polymetrizer as pet
 
@@ -18,6 +18,10 @@ def forcefield():
 def ace():
     return Monomer.from_smiles(ACE, name="Ace")
 
+@pytest.fixture()
+def nme():
+    return Monomer.from_smiles(NME, name="Nme")
+
 
 @pytest.fixture()
 def cys():
@@ -27,3 +31,8 @@ def cys():
 @pytest.fixture()
 def pro():
     return Monomer.from_smiles(PRO, name="Pro")
+
+
+@pytest.fixture()
+def cys_oligomer(cys):
+    return cys.to_oligomer()

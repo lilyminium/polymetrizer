@@ -1,4 +1,4 @@
-from typing import Set, List, Dict, Any
+from typing import Set, List, Dict, Any, Optional
 from collections import defaultdict
 import re
 import itertools
@@ -6,31 +6,13 @@ import itertools
 import numpy as np
 
 
-def replace_R_with_dummy(smiles: str):
+def replace_R_with_dummy(smiles: str, r_number: Optional[int] = None):
     smiles = re.sub(r"([\\/]*)\[R([0-9]+)]", r"\1[\2*:\2]", smiles)
-    smiles = re.sub(r"\[R\]", r"[*]", smiles)
+    if r_number:
+        smiles = re.sub(r"\[R\]", f"[*:{r_number}]", smiles)
+    else:
+        smiles = re.sub(r"\[R\]", r"[*]", smiles)
     return smiles
-
-
-def replace_dummy_with_R(smiles: str):
-    smiles = re.sub(r"\[\*\]", r"[R]", smiles)
-    return re.sub(r"\[[0-9]*\*:([0-9]+)\]", r"[R\1]", smiles)
-
-
-def get_r_group_numbers_from_smiles(smiles: str) -> Set[int]:
-    return set(map(int, re.findall(r"\[R([0-9]+)]", smiles)))
-
-
-def replace_dummy_with_wildcard(smiles: str):
-    return re.sub(r"\[[0-9]*\*(:?[0-9]*)\]", r"[*\1]", smiles)
-
-
-def get_other_in_pair(self, value, pair):
-    assert len(pair) == 2
-    assert value in pair
-    if value == pair[0]:
-        return pair[1]
-    return pair[0]
 
 
 def is_iterable(obj: Any) -> bool:

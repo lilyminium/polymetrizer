@@ -125,7 +125,7 @@ class TestParameterSet:
         assert bonds[4].monomer_atoms[0].monomer_node == 1
         assert bonds[4].monomer_atoms[1].monomer_node == 2
 
-    def test_add_parameters(self, cys, ace, nme):
+    def test_add_parameters(self, cys, ace, nme, forcefield):
         cys_nodes = list(cys.graph.nodes(data=True))
         for i, z in enumerate([1, 16, 6, 1, 1, 6, 1, 6, 8]):
             assert cys_nodes[i][1]["atomic_number"] == z
@@ -133,9 +133,58 @@ class TestParameterSet:
         cys_ace = cys.cap_remaining(caps=[ace])
         cys_nme = cys.cap_remaining(caps=[nme])
         ca_nodes = cys_ace.graph.nodes(data=True)
-        cn_nodes = cys_ace.graph.nodes(data=True)
+        cn_nodes = cys_nme.graph.nodes(data=True)
+
+        # same core
         for i, z in enumerate([1, 16, 6, 1, 1, 6, 1, 6, 8]):
             assert ca_nodes[i]["atomic_number"] == z
+            assert cn_nodes[i]["atomic_number"] == z
+
+        # different molecules
+        assert ca_nodes[22] != cn_nodes[22]
+
+        # no dummy
+        for node, data in ca_nodes:
+            assert data["atomic_number"] != 0
+        for node, data in cn_nodes:
+            assert data["atomic_number"] != 0
+
+        ace_ffs = cys_ace.to_openff_parameterset(forcefield)
+        ace_torsions = ace_ffs["ProperTorsions"]
+        nme_ffs = cys_ace.to_openff_parameterset(forcefield)
+        nme_torsions = nme_ffs["ProperTorsions"]
+
+        dihgraph = cys.graph.atomgraph_from_indices([10, 5, 7, 8])
+        assert dihgraph in ace_torsions
+        assert dihgraph in nme_torsions
+        ace_dih = ace_torsions[dihgraph]
+        nme_dih = nme_torsions[dihgraph]
+        
+        original_k = ace_dih[0]["k"][0]
+        ace_dih[0]["k"][0] = ace_dih[0]["k"][0] * 2
+
+        combined = ace_ffs + nme_ffs
+        torsions = combined["ProperTorsions"]
+        com_dih = torsions[dihgraph]
+        assert torsions is not ace_torsions
+        assert torsions is not nme_torsions
+        assert com_dih is not ace_torsions[dihgraph]
+        assert com_dih[0] is not ace_torsions[dihgraph][0]
+        assert com_dih[0] is not nme_torsions[dihgraph][0]
+        assert com_dih[0]["k"] is not ace_torsions[dihgraph][0]["k"]
+        assert com_dih[0]["k"] is not nme_torsions[dihgraph][0]["k"]
+
+        assert len(com_dih) == 2
+        assert len(com_dih[0]["k"]) == 1
+        assert len(com_dih[1]["k"]) == 1
+        assert com_dih[1]["k"] == [original_k]
+        assert com_dih[0]["k"] == [original_k * 2]
+        
+        # test averaging
+        averaged = combined.average_over_keys()
+        assert len(averaged["ProperTorsions"][dihgraph]["k"]) == 1
+        assert averaged["ProperTorsions"][dihgraph]["k"] == [original_k * 1.5]
+        
 
 
         

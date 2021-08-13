@@ -1,6 +1,7 @@
 from typing import Dict, List, Any
 from collections import defaultdict
 import itertools
+import copy
 import warnings
 
 import numpy as np
@@ -47,9 +48,9 @@ class ParameterSet:
         for key, spec in parameter_set.items():
             parameter = self.get(key)
             if isinstance(spec, list):
-                parameter.extend(spec)
+                parameter.extend(copy.deepcopy(spec))
             else:
-                parameter.append(spec)
+                parameter.append(copy.deepcopy(spec))
 
     def _add_parameters(self, parameter_set: Dict[tuple, Dict[str, Any]]):
         if isinstance(parameter_set, type(self)):
@@ -58,9 +59,9 @@ class ParameterSet:
         for key, spec in parameter_set.items():
             parameter = self._all_parameters[key]
             if isinstance(spec, list):
-                parameter.extend(spec)
+                parameter.extend(copy.deepcopy(spec))
             else:
-                parameter.append(spec)
+                parameter.append(copy.deepcopy(spec))
 
     def get(self, key):
         if self._all_parameters:
@@ -87,7 +88,7 @@ class ParameterSet:
     def map_indices_to_graph(self, graph):
         new = defaultdict(list)
         for indices, values in self._all_parameters.items():
-            subgraph = graph.atom_subgraph_by_indices(indices)
+            subgraph = graph.atomgraph_from_indices(indices)
             new[subgraph].extend(values)
         self._all_parameters = new
 

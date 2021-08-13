@@ -326,7 +326,7 @@ class MolecularGraph(HashableGraph):
     def monomer_atoms(self):
         return [self.graph_.nodes[node]["monomer_atom"] for node in self.graph_]
 
-    def atom_subgraph_by_indices(self, indices: List[int]):
+    def atomgraph_from_indices(self, indices: List[int]):
         nodes = [self.index_to_node_mapping[i] for i in indices]
         atomgraph = AtomGraph.from_node_graph(self.graph_.subgraph(nodes))
         for i, node in enumerate(nodes):

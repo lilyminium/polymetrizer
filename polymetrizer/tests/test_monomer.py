@@ -3,7 +3,7 @@ import pytest
 
 from polymetrizer import Monomer
 
-from .smiles import CYS3, CYS3PRO, CYS3PRO2
+from .smiles import CYS3, CYS3PRO, CYS3PRO2, CYS
 
 
 class TestMonomer:
@@ -16,4 +16,3 @@ class TestMonomer:
         assert all(a.monomer_name == "Cys" for a in atoms)
         zs = [a.atomic_number for a in atoms]
         assert zs == [1, 16, 6, 1, 1, 6, 1, 6, 8, 0, 7, 1, 0]
-

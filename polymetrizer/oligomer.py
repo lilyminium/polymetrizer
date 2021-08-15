@@ -137,7 +137,6 @@ class Oligomer(BaseMolecule):
                                      inplace=True)
         for cap in caps:
             r_groups = cap.get_compatible_rs(self, linkage_graph=linkage_graph)
-            print("r_groups", r_groups)
             self._cap_remaining(cap, r_groups)
         return self
 
@@ -182,7 +181,7 @@ class Oligomer(BaseMolecule):
             self,
             nodes: List[int] = [],
             label_nodes: List[int] = [],
-            context: Literal["minimal", "central", "residue", "full"] = "full",
+            context: Literal["minimal", "central", "residue", "oligomer", "full"] = "full",
             include_caps: bool = False,
             return_monomer_id=False,
             **kwargs,
@@ -198,12 +197,16 @@ class Oligomer(BaseMolecule):
                 nodes |= self._monomer_to_atom_nodes[monomer]
         elif context == "full":
             nodes = self.graph_.nodes
+        elif context == "oligomer":
+            cap_nodes = self.graph.get_nodes(cap=True)
+            nodes = {i for i in self.graph_.nodes if i not in cap_nodes}
         nodes = {i for i in nodes if i in self.graph_}
         if include_caps:
             nodes |= self.graph.get_neighbor_caps(*nodes)
 
         return super().to_smarts(nodes=nodes, label_nodes=label_nodes,
-                                 return_monomer_id=return_monomer_id)
+                                 return_monomer_id=return_monomer_id,
+                                 **kwargs)
 
     def nodes_to_monomer_id(self, nodes):
         names = [self.graph_.nodes[n]["monomer_name"] for n in nodes]

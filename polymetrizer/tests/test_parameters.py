@@ -6,16 +6,19 @@ from polymetrizer import Monomer
 from polymetrizer.graph import AtomGraph
 from polymetrizer.parameters import ForceFieldParameterSets
 
+
 @pytest.fixture()
 def cco_index_parameters(forcefield):
     offmol = Molecule.from_smiles("CCO")
     parameters = ForceFieldParameterSets.from_openff_molecule(offmol, forcefield,
-                                                                optimize_geometry=False)
+                                                              optimize_geometry=False)
     return parameters
+
 
 @pytest.fixture()
 def cco_bonds(cco_index_parameters):
     return cco_index_parameters["Bonds"]
+
 
 class TestForceFieldParameterSets:
 
@@ -125,15 +128,15 @@ class TestParameterSet:
         assert bonds[4].monomer_atoms[0].monomer_node == 1
         assert bonds[4].monomer_atoms[1].monomer_node == 2
 
-    def test_add_parameters(self, cys, ace, nme, forcefield):
+    def test_add_parameters(self, cys,
+                            cys_ace_caps, cys_nme_caps,
+                            forcefield):
         cys_nodes = list(cys.graph.nodes(data=True))
         for i, z in enumerate([1, 16, 6, 1, 1, 6, 1, 6, 8]):
             assert cys_nodes[i][1]["atomic_number"] == z
 
-        cys_ace = cys.cap_remaining(caps=[ace])
-        cys_nme = cys.cap_remaining(caps=[nme])
-        ca_nodes = cys_ace.graph.nodes(data=True)
-        cn_nodes = cys_nme.graph.nodes(data=True)
+        ca_nodes = cys_ace_caps.graph.nodes(data=True)
+        cn_nodes = cys_nme_caps.graph.nodes(data=True)
 
         # same core
         for i, z in enumerate([1, 16, 6, 1, 1, 6, 1, 6, 8]):
@@ -149,21 +152,19 @@ class TestParameterSet:
         for node, data in cn_nodes:
             assert data["atomic_number"] != 0
 
-        ace_ffs = cys_ace.to_openff_parameterset(forcefield)
-        ace_torsions = ace_ffs["ProperTorsions"]
-        nme_ffs = cys_ace.to_openff_parameterset(forcefield)
-        nme_torsions = nme_ffs["ProperTorsions"]
+        ace_torsions = cys_ace_ffset["ProperTorsions"]
+        nme_torsions = cys_nme_ffset["ProperTorsions"]
 
         dihgraph = cys.graph.atomgraph_from_indices([10, 5, 7, 8])
         assert dihgraph in ace_torsions
         assert dihgraph in nme_torsions
         ace_dih = ace_torsions[dihgraph]
         nme_dih = nme_torsions[dihgraph]
-        
+
         original_k = ace_dih[0]["k"][0]
         ace_dih[0]["k"][0] = ace_dih[0]["k"][0] * 2
 
-        combined = ace_ffs + nme_ffs
+        combined = cys_ace_ffset + cys_nme_ffset
         torsions = combined["ProperTorsions"]
         com_dih = torsions[dihgraph]
         assert torsions is not ace_torsions
@@ -179,12 +180,8 @@ class TestParameterSet:
         assert len(com_dih[1]["k"]) == 1
         assert com_dih[1]["k"] == [original_k]
         assert com_dih[0]["k"] == [original_k * 2]
-        
+
         # test averaging
         averaged = combined.average_over_keys()
         assert len(averaged["ProperTorsions"][dihgraph]["k"]) == 1
         assert averaged["ProperTorsions"][dihgraph]["k"] == [original_k * 1.5]
-        
-
-
-        

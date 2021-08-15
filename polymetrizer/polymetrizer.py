@@ -133,7 +133,7 @@ class Polymetrizer(base.Model):
     def build_openff_residue_forcefield(self, forcefield,
                                         include_caps: bool = True,
                                         average_same_smarts: bool = True,
-                                        split_smarts_into_full: bool = False,
+                                        split_smarts_into_oligomer: bool = False,
                                         combine_smarts=("LibraryCharges",),
                                         **kwargs
                                         ):
@@ -142,7 +142,7 @@ class Polymetrizer(base.Model):
                                                      **kwargs)
         averaged = parameters.average_over_keys()
         smirkset = SmirkSet(average_same_smarts=average_same_smarts,
-                            split_smarts_into_full=split_smarts_into_full,
+                            split_smarts_into_oligomer=split_smarts_into_oligomer,
                             include_caps=include_caps,
                             context="residue")
         new = type(forcefield)()
@@ -151,10 +151,10 @@ class Polymetrizer(base.Model):
             handler = new.get_parameter_handler(parameter_name)
             if parameter_name in combine_smarts:
                 compounds = self._monomers + self.caps
-                with smirkset.set_compounds(compounds) as smirker:
+                with smirkset.with_compounds(compounds) as smirker:
                     smarts_to_parameter = smirker.generate_combined_smarts(parameter_set)
             else:
-                with smirkset.set_compounds(self.oligomers) as smirker:
+                with smirkset.with_compounds(self.oligomers) as smirker:
                     smarts_to_parameter = smirker.generate_unique_smarts(parameter_set)
 
             # sort by length as proxy for applicability
@@ -173,7 +173,7 @@ class Polymetrizer(base.Model):
                     prune_isomorphs: bool = True,
                     include_caps: bool = True,
                     average_same_smarts: bool = True,
-                    split_smarts_into_full: bool = True,
+                    split_smarts_into_oligomer: bool = True,
                     partial_charge_method: str = "am1bcc",
                     minimize_geometry: bool = True,
                     optimize_geometry: bool = False,
@@ -186,7 +186,7 @@ class Polymetrizer(base.Model):
                                                   n_neighbors=n_overlapping_atoms,
                                                   include_caps=include_caps,
                                                   average_same_smarts=average_same_smarts,
-                                                  split_smarts_into_full=split_smarts_into_full,
+                                                  split_smarts_into_oligomer=split_smarts_into_oligomer,
                                                   partial_charge_method=partial_charge_method,
                                                   minimize_geometry=minimize_geometry,
                                                   optimize_geometry=optimize_geometry,

@@ -21,7 +21,8 @@ class Monomer(Unit, Oligomer):
     def substitute(self, other: "Monomer",
                    r_self: int, r_other: int):
         obj = self.to_oligomer()
-        return obj._substitute(other, r_self, r_other)
+        obj._substitute(other, r_self, r_other)
+        return obj
 
     def cap_remaining(self, caps: List[Cap] = [HYDROGEN_CAP], linkage_graph=None):
         obj = self.to_oligomer()

@@ -33,7 +33,7 @@ class TestPolymetrizer:
 
 
     def test_create_disulfide_dimers(self):
-        # code from Chapin Cavender
+        # code from Chapin Cavender @chapincavender
         # SMILES for Cyx residue
         CYX = "[S]([*:3])[C]([H])([H])[C@@]([H])([C](=[O])[*:2])[N]([H])[*:1]"
 

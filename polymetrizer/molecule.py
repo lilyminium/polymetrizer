@@ -66,8 +66,8 @@ class BaseMolecule(base.Model):
     def to_rdkit(self):
         return self.graph.to_rdkit()
 
-    def to_smiles(self):
-        return self.graph.to_smiles()
+    def to_smiles(self, mapped: bool = True):
+        return self.graph.to_smiles(mapped=mapped)
 
     def __len__(self):
         return len(self.graph)

@@ -11,6 +11,6 @@ offlogger.propagate = False
 
 
 from .polymetrizer import Polymetrizer
-from .cap import HYDROGEN_CAP, ACE_CAP, NME_CAP
+from .cap import Cap, HYDROGEN_CAP, ACE_CAP, NME_CAP
 from .monomer import Monomer
 from .oligomer import Oligomer

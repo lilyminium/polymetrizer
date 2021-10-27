@@ -1,38 +1,28 @@
 import contextlib
 import re
 import warnings
+from typing import Optional
 from collections import defaultdict
 
 from rdkit import Chem
 
-from . import utils
+from . import utils, base
 from .parameters import ParameterSet
 
 
-class BeSmirker:
-
-    def __init__(self, label_atom_element: bool = True,
-                 label_atom_aromaticity: bool = False,
-                 label_atom_hydrogen_count: bool = False,
-                 label_atom_connectivity: bool = False,
-                 label_ring_connectivity: bool = False,
-                 label_ring_atoms: bool = False,
-                 label_atom_formal_charge: bool = True,
-                #  label_ring_bonds: bool = False,
-                 ):
-        self.label_atom_element = label_atom_element
-        self.label_atom_aromaticity = label_atom_aromaticity
-        self.label_atom_hydrogen_count = label_atom_hydrogen_count
-        self.label_atom_connectivity = label_atom_connectivity
-        self.label_ring_connectivity = label_ring_connectivity
-        self.label_ring_atoms = label_ring_atoms
-        # self.label_ring_bonds = label_ring_bonds
-        self.label_atom_formal_charge = label_atom_formal_charge
+class BeSmirker(base.Model):
+    label_atom_element: bool = True
+    label_atom_aromaticity: bool = False
+    label_atom_hydrogen_count: bool = False
+    label_atom_connectivity: bool = False
+    label_ring_connectivity: bool = False
+    label_ring_atoms: bool = False
+    label_atom_formal_charge: Optional[bool] = None
 
     def __call__(self, rdmol, label_atom_numbers=[]):
         if not isinstance(rdmol, Chem.Mol):
             rdmol = rdmol.to_rdkit()
-        
+
         if self.label_atom_hydrogen_count:
             rdmol = Chem.RemoveHs(rdmol)
 
@@ -106,10 +96,16 @@ class BeSmirker:
         if self.label_ring_atoms and "min_ring_size" in info:
             ring_size = info["min_ring_size"]
             # TODO: rdkit treats !r weirdly
-            ring = f"r{ring_size}" if ring_size else  "" #"!r"
+            ring = f"r{ring_size}" if ring_size else ""  # "!r"
             smarts += ring
-        if self.label_atom_formal_charge and "formal_charge" in info:
-            smarts += f"{info['formal_charge']:+d}"
+        if "formal_charge" in info:
+            chg = info['formal_charge']
+            if self.label_atom_formal_charge:
+                smarts += f"{chg:+d}"
+            elif self.label_atom_formal_charge is None:
+                if chg != 0:
+                    smarts += f"{chg:+d}"
+
         return f"[{smarts}{info['label']}]"
 
     @staticmethod
@@ -145,27 +141,28 @@ class BeSmirker:
 class SmirkSet:
 
     def __init__(self, average_same_smarts: bool = True,
-                 split_smarts_into_full: bool = True,
+                 split_smarts_into_oligomer: bool = True,
                  context="residue",
                  #  include_caps: bool = False,
                  **kwargs):
-        self.split = split_smarts_into_full
+        self.split = split_smarts_into_oligomer
         self.average = average_same_smarts
         self.context = context
         # self.include_caps = include_caps
         self.compounds = {}
+        self.smirker = BeSmirker(**kwargs)
 
     @contextlib.contextmanager
-    def set_compounds(self, compounds):
+    def with_compounds(self, compounds):
         old_compounds = self.compounds
-        self._set_compounds(compounds)
+        self.set_compounds(compounds)
         try:
             yield self
             raise RuntimeError
         except RuntimeError:
             self.compounds = old_compounds
 
-    def _set_compounds(self, compounds):
+    def set_compounds(self, compounds):
         self.compounds = {}
         for cpd in sorted(compounds, key=len):
             key = frozenset(cpd.monomer_atoms)
@@ -175,7 +172,7 @@ class SmirkSet:
         for cpd, nodes in self.iter_matching_subgraph_nodes(atom_graph):
             sm = cpd.to_smarts(label_nodes=nodes,
                                context=self.context,
-                               #    include_caps=self.include_caps,
+                               **self.smirker.dict()
                                )
             if return_monomer_id:
                 return sm, cpd.nodes_to_monomer_id(nodes)
@@ -187,8 +184,10 @@ class SmirkSet:
         smarts = []
         monomer_ids = []
         for cpd, nodes in self.iter_matching_subgraph_nodes(atom_graph):
-            sm, mid = cpd.to_smarts(label_nodes=nodes, context="full",
-                                    return_monomer_id=True)
+            sm, mid = cpd.to_smarts(label_nodes=nodes, context="oligomer",
+                                    return_monomer_id=True,
+                                    **self.smirker.dict()
+                                    )
             monomer_ids.append(mid)
             smarts.append(sm)
         if return_monomer_id:
@@ -207,7 +206,7 @@ class SmirkSet:
         self._smarts_to_parameter = defaultdict(list)
         self._smarts_to_atomgraph = defaultdict(list)
         self._smarts_to_ids = {}
-        self._unique_smarts_parameters = {}
+        # self._unique_smarts_parameters = {}
 
     def _generate_initial_smarts(self, parameter_set):
         for atom_graph, parameter in parameter_set.items():
@@ -269,15 +268,21 @@ class SmirkSet:
                 full_to_ag[full].append(agraph)
 
         unique = {}
+        unique_ag_to_full = defaultdict(list)
         # check full smarts for duplicates
         for full, parameters in full_smarts.items():
             if len(parameters) == 1:
                 unique[full] = parameters[0]
+                graphs = full_to_ag[full]
+                for graph in graphs:
+                    unique_ag_to_full[graph].append(full)
             else:
                 # TODO: find the unique matches from duplicates
                 # basically this is fine so long as the parameters are covered
                 # by the other ones, I think
                 pass
+        if not len(unique_ag_to_full) == len(atomgraphs):
+            raise ValueError("Could not generate smarts for all atom graphs")
         return unique
 
     def generate_unique_smarts(self, parameter_set):

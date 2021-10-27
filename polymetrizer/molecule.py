@@ -16,6 +16,7 @@ class Atom(base.Model):
     is_aromatic: bool
     monomer_name: str
     monomer_node: int
+    monomer_id: int
     cap: bool = False
 
     # def __repr__(self):
@@ -65,8 +66,8 @@ class BaseMolecule(base.Model):
     def to_rdkit(self):
         return self.graph.to_rdkit()
 
-    def to_smiles(self):
-        return self.graph.to_smiles()
+    def to_smiles(self, mapped: bool = True):
+        return self.graph.to_smiles(mapped=mapped)
 
     def __len__(self):
         return len(self.graph)
@@ -155,9 +156,6 @@ class BaseMolecule(base.Model):
 
         return cap_combinations
 
-    
-
-
 
 class Unit(BaseMolecule):
 
@@ -169,7 +167,8 @@ class Unit(BaseMolecule):
         self.graph.set_node_attr(monomer_name=self.name)
         self.graph.set_node_attr(central=True)
         for node in self.graph_:
-            hashable = Atom(monomer_node=node, **self.graph_.nodes[node])
+            hashable = Atom(monomer_node=node, monomer_id=id(self),
+                            **self.graph_.nodes[node])
             self.graph_.nodes[node]["monomer_atom"] = hashable
 
     def nodes_to_monomer_id(self, nodes):

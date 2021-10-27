@@ -257,7 +257,7 @@ class MolecularGraph(HashableGraph):
                 # raise ValueError(f"Bonds not compatible: {a_data} vs {b_data}")
             self.graph_.add_edge(a, b, **a_data)
         new_nodes = set(self.graph_)
-        return new_nodes - old_nodes, (a, b)
+        return new_nodes - old_nodes, (a, b), increment
 
     def relabel_nodes(self, increment: int = 0, copy: bool = True):
         if copy:

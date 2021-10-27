@@ -145,14 +145,36 @@ class ForceFieldParameterSets:
                              minimize_max_iter: int = 1000,
                              optimize_method: str = "m06-2x/def2-TZVP",
                              ):
-        system = offutils.create_openmm_system(molecule, forcefield,
-                                               partial_charge_method=partial_charge_method,
-                                               minimize_geometry=minimize_geometry,
-                                               optimize_geometry=optimize_geometry,
-                                               minimize_max_iter=minimize_max_iter,
-                                               optimize_method=optimize_method)
-        pset = cls.from_openmm_system(system)
-        return pset
+        # system = offutils.create_openmm_system(molecule, forcefield,
+        #                                        partial_charge_method=partial_charge_method,
+        #                                        minimize_geometry=minimize_geometry,
+        #                                        optimize_geometry=optimize_geometry,
+        #                                        minimize_max_iter=minimize_max_iter,
+        #                                        optimize_method=optimize_method)
+        # pset = cls.from_openmm_system(system)
+        # return pset
+
+        smiles = "parameters/" + str(hash(molecule.to_smiles())) + ".pkl"
+        try:
+            import pickle
+            with open(f"{smiles}", "rb") as f:
+                pset = pickle.load(f)
+            return pset
+        except FileNotFoundError:
+            import pickle
+            system = offutils.create_openmm_system(molecule, forcefield,
+                                                   partial_charge_method=partial_charge_method,
+                                                   minimize_geometry=minimize_geometry,
+                                                   optimize_geometry=optimize_geometry,
+                                                   minimize_max_iter=minimize_max_iter,
+                                                   optimize_method=optimize_method)
+            pset = cls.from_openmm_system(system)
+            try:
+                with open(f"{smiles}", "wb") as f:
+                    pickle.dump(pset, f)
+            except:
+                pass
+            return pset
 
     def __init__(self, **kwargs):
         self.parameter_sets = {}

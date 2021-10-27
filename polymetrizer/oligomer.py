@@ -36,16 +36,23 @@ class Oligomer(BaseMolecule):
 
     def _substitute(self, other, r_self, r_other):
         # TODO: maybe pin to node instead of r?
-        new_nodes, new_edge = self.graph.add_with_r(other.graph, r_self, r_other)
-        self._record_monomer(other, new_atom_nodes=new_nodes,
+        new_nodes, new_edge, increment = self.graph.add_with_r(other.graph, r_self, r_other)
+
+        if type(other) is type(self):
+            func = self._record_oligomer
+        else:
+            func = self._record_monomer
+
+        func(other, new_atom_nodes=new_nodes,
                              new_atom_edge=new_edge,
-                             )
+                             increment=increment)
         return self
 
     def _record_monomer(
             self, monomer,
             new_atom_nodes=set(),
             new_atom_edge: Optional[Tuple[int, int]] = None,
+            **kwargs
     ):
         """Do some atom/monomer accounting for each new addition.
         This primarily builds a monomer-monomer graph for easy CG-searching
@@ -57,29 +64,78 @@ class Oligomer(BaseMolecule):
         self._constituent_monomers[monomer.name].append(new_monomer_node)
         # add node
         self._monomer_graph.add_node(new_monomer_node, monomer_name=monomer.name)
-        # add edge
         if new_atom_edge:
             old_atom_node, new_atom_node = new_atom_edge
             if old_atom_node in new_atom_nodes:
                 new_atom_node, old_atom_node = new_atom_edge
+            self._replace_monomer_graph_edge(new_monomer_node, old_atom_node, new_atom_node)
+        
 
-            old_monomer_node = self._atom_to_monomer_nodes[old_atom_node]
-            # remove from old node
-            to_remove = {i for i in self._monomer_to_atom_nodes[old_monomer_node] if i not in self.graph_.nodes}
-            for i in to_remove:
-                self._atom_to_monomer_nodes.pop(i)
-                self._monomer_to_atom_nodes[old_monomer_node].remove(i)
-            edge = (old_monomer_node, new_monomer_node)
-            atom_edge = (old_atom_node, new_atom_node)
-            names = (self._monomer_graph.nodes[old_monomer_node]["monomer_name"],
-                     self._monomer_graph.nodes[new_monomer_node]["monomer_name"],)
-            monomer_atoms = (self.graph_.nodes[old_atom_node]["monomer_atom"],
-                             self.graph_.nodes[new_atom_node]["monomer_atom"])
-            self._monomer_graph.add_edge(*edge,
-                                         atom_nodes=atom_edge,
-                                         monomer_atoms=monomer_atoms,
-                                         monomer_nodes=edge,
-                                         monomer_names=names)
+    def _replace_monomer_graph_edge(
+        self,
+        new_monomer_node,
+        old_atom_node,
+        new_atom_node,
+    ):
+        old_monomer_node = self._atom_to_monomer_nodes[old_atom_node]
+        # remove from old node
+        to_remove = {i for i in self._monomer_to_atom_nodes[old_monomer_node] if i not in self.graph_.nodes}
+        for i in to_remove:
+            self._atom_to_monomer_nodes.pop(i)
+            self._monomer_to_atom_nodes[old_monomer_node].remove(i)
+        edge = (old_monomer_node, new_monomer_node)
+        atom_edge = (old_atom_node, new_atom_node)
+        names = (self._monomer_graph.nodes[old_monomer_node]["monomer_name"],
+                    self._monomer_graph.nodes[new_monomer_node]["monomer_name"],)
+        monomer_atoms = (self.graph_.nodes[old_atom_node]["monomer_atom"],
+                            self.graph_.nodes[new_atom_node]["monomer_atom"])
+        self._monomer_graph.add_edge(*edge,
+                                     atom_nodes=atom_edge,
+                                     monomer_atoms=monomer_atoms,
+                                     monomer_nodes=edge,
+                                     monomer_names=names)
+
+
+    def _record_oligomer(
+        self, oligomer,
+        new_atom_nodes=set(),
+        new_atom_edge: Optional[Tuple[int, int]] = None,
+        increment: int = 0,
+    ):
+        last_monomer_node = len(self._monomer_graph)
+        old_to_new_monomer_nodes = {}
+        for monomer_node, atom_node_set in oligomer._monomer_to_atom_nodes.items():
+            new_atom_nodes_ = {i + increment for i in atom_node_set}
+            new_monomer_node = last_monomer_node + monomer_node
+            old_to_new_monomer_nodes[monomer_node] = new_monomer_node
+            self._monomer_to_atom_nodes[new_monomer_node] = new_atom_nodes_
+            for node in new_atom_nodes_:
+                self._atom_to_monomer_nodes[node] = new_monomer_node
+            
+            monomer_name = oligomer._monomer_graph.nodes[monomer_node]["monomer_name"]
+            self._constituent_monomers[monomer_name].append(new_monomer_node)
+            self._monomer_graph.add_node(new_monomer_node, monomer_name=monomer_name)
+
+        if new_atom_edge:
+            old_atom_node, new_atom_node = new_atom_edge
+            if old_atom_node in new_atom_nodes:
+                new_atom_node, old_atom_node = new_atom_edge
+            new_monomer_node = self._atom_to_monomer_nodes[new_atom_node]
+            self._replace_monomer_graph_edge(new_monomer_node, old_atom_node, new_atom_node)
+
+        for i, j, data in oligomer._monomer_graph.edges(data=True):
+            atom_nodes = tuple(x + increment for x in data["atom_nodes"])
+            monomer_nodes = tuple(old_to_new_monomer_nodes[x] for x in data["monomer_nodes"])
+            self._monomer_graph.add_edge(i, j,
+                                         atom_nodes=atom_nodes,
+                                         monomer_atoms=data["monomer_atoms"],
+                                         monomer_nodes=monomer_nodes,
+                                         monomer_names=data["monomer_names"],
+                                         )
+
+
+
+
 
     def with_substitutions(self, substitutions: List[dict]):
         new = self.copy(deep=True)
@@ -137,7 +193,6 @@ class Oligomer(BaseMolecule):
                                      inplace=True)
         for cap in caps:
             r_groups = cap.get_compatible_rs(self, linkage_graph=linkage_graph)
-            print("r_groups", r_groups)
             self._cap_remaining(cap, r_groups)
         return self
 
@@ -182,7 +237,7 @@ class Oligomer(BaseMolecule):
             self,
             nodes: List[int] = [],
             label_nodes: List[int] = [],
-            context: Literal["minimal", "central", "residue", "full"] = "full",
+            context: Literal["minimal", "central", "residue", "oligomer", "full"] = "full",
             include_caps: bool = False,
             return_monomer_id=False,
             **kwargs,
@@ -198,12 +253,16 @@ class Oligomer(BaseMolecule):
                 nodes |= self._monomer_to_atom_nodes[monomer]
         elif context == "full":
             nodes = self.graph_.nodes
+        elif context == "oligomer":
+            cap_nodes = self.graph.get_nodes(cap=True)
+            nodes = {i for i in self.graph_.nodes if i not in cap_nodes}
         nodes = {i for i in nodes if i in self.graph_}
         if include_caps:
             nodes |= self.graph.get_neighbor_caps(*nodes)
 
         return super().to_smarts(nodes=nodes, label_nodes=label_nodes,
-                                 return_monomer_id=return_monomer_id)
+                                 return_monomer_id=return_monomer_id,
+                                 **kwargs)
 
     def nodes_to_monomer_id(self, nodes):
         names = [self.graph_.nodes[n]["monomer_name"] for n in nodes]
